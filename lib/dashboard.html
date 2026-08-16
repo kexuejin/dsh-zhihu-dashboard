@@ -179,6 +179,15 @@
         </div>
       </div>
     </div>
+    <div class="row">
+      <div>
+        <label for="trackNotify">追踪新内容系统通知</label>
+        <div style="display:flex;align-items:center;gap:8px;padding-top:7px">
+          <input id="trackNotify" type="checkbox" style="width:auto">
+          <span class="hint" style="margin:0">检查发现新内容时弹浏览器系统通知（首次需授权）</span>
+        </div>
+      </div>
+    </div>
     <div class="actions">
       <button class="ghost" id="close-settings">关闭</button>
       <button class="ghost" id="save-settings">保存</button>
@@ -190,7 +199,7 @@
 (() => {
   'use strict'
   const $ = (id) => document.getElementById(id)
-  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', trackInterval: 'zhihu.trackInterval', autoBrief: 'zhihu.autoBrief' }
+  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', trackInterval: 'zhihu.trackInterval', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify' }
 
   let tab = 'hot'
   let timer = null
@@ -213,6 +222,7 @@
       contentsSort: lsGet(LS.contentsSort, 'ts'),
       trackInterval: Number(lsGet(LS.trackInterval, '0')) || 0,
       autoBrief: lsGet(LS.autoBrief, '0') === '1',
+      trackNotify: lsGet(LS.trackNotify, '1') === '1',
     }
   }
 
@@ -749,16 +759,37 @@
     if (tracks.length === 0) return
     $('status').textContent = '检查更新中…'
     let totalNew = 0
+    const newPerTrack = []
     for (const t of tracks) {
       const newCount = await checkOneTrack(t.id)
-      if (newCount > 0) totalNew += newCount
+      if (newCount > 0) newPerTrack.push({ query: t.query, count: newCount })
+      totalNew += newCount
     }
     if (totalNew > 0) {
       $('status').textContent = `🔔 追踪发现 ${totalNew} 条新内容`
+      notifyNewContent(totalNew, newPerTrack)
     } else {
       $('status').textContent = '检查完成，无新增'
     }
     renderTrackList()
+  }
+
+  /** Browser system notification for newly found tracked content. */
+  function notifyNewContent(total, perTrack) {
+    // 未读数持久化：侧边栏按钮（同源 iframe 外层）通过 storage 事件读取。
+    const prev = Number(localStorage.getItem('zhihu.unread') || '0')
+    try { localStorage.setItem('zhihu.unread', String(prev + total)) } catch { /* private mode */ }
+    if (!config().trackNotify) return
+    const lines = perTrack.slice(0, 3).map((t) => `${t.query}: ${t.count} 条`).join('\n')
+    const body = `${lines}${perTrack.length > 3 ? `\n…共 ${total} 条` : ''}`
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('知乎追踪有新内容', { body, tag: 'zhihu-track' })
+      } else if ('Notification' in window && Notification.permission === 'default') {
+        // 首次需要权限：请求一次（由用户手势触发更好，这里为自动检查妥协）
+        void Notification.requestPermission()
+      }
+    } catch { /* notifications unavailable */ }
   }
 
   /**
@@ -856,6 +887,8 @@
     const tracks = readTracks()
     const track = tracks.find((t) => t.id === id)
     if (!track || !Array.isArray(track.lastItems)) return
+    // 用户查看了追踪内容 → 清空未读计数
+    try { localStorage.setItem('zhihu.unread', '0') } catch { /* private mode */ }
     const box = $('content')
     const items = track.lastItems
     box.innerHTML = `
@@ -978,6 +1011,7 @@
     $('contentsSort').value = cfg.contentsSort
     $('trackInterval').value = cfg.trackInterval
     $('autoBrief').checked = cfg.autoBrief
+    $('trackNotify').checked = cfg.trackNotify
     $('settings').classList.add('open')
   }
 
@@ -990,6 +1024,7 @@
     lsSet(LS.contentsSort, $('contentsSort').value === 'like_count' ? 'like_count' : 'ts')
     lsSet(LS.trackInterval, String(Math.max(Number($('trackInterval').value) || 0, 0)))
     lsSet(LS.autoBrief, $('autoBrief').checked ? '1' : '0')
+    lsSet(LS.trackNotify, $('trackNotify').checked ? '1' : '0')
     $('settings').classList.remove('open')
     restartTrackTimer()
     load()

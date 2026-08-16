@@ -19,19 +19,42 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { NS } from './locales.ts'
 
 const PANEL_PATH = '/zhihu-dashboard'
+const UNREAD_KEY = 'zhihu.unread'
 
 /** Foot button rendered in the official left sidebar (wide row or rail icon). */
 function ZhihuFootButton({ wide }: { wide: boolean }) {
   const [open, setOpen] = useState(false)
+  // Unread badge: the dashboard iframe (same origin) writes zhihu.unread via
+  // localStorage; the storage event fires in every same-origin window/iframe.
+  const [unread, setUnread] = useState<number>(() => {
+    try { return Math.max(Number(localStorage.getItem(UNREAD_KEY) || '0'), 0) } catch { return 0 }
+  })
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === UNREAD_KEY) {
+        setUnread(Math.max(Number(e.newValue || '0'), 0))
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+  const openPanel = () => {
+    setOpen((v) => !v)
+    if (!open) {
+      // Opening the panel clears the badge.
+      try { localStorage.setItem(UNREAD_KEY, '0') } catch { /* private mode */ }
+      setUnread(0)
+    }
+  }
   // Keep the overlay mounted while open; toggling re-renders it.
   return h('div', { style: { display: 'contents' } }, [
     h('button', {
       key: 'btn',
       type: 'button',
-      title: '知乎面板',
+      title: unread > 0 ? `知乎面板（${unread} 条新内容）` : '知乎面板',
       'aria-label': '知乎面板',
       'aria-expanded': open,
-      onClick: () => setOpen((v) => !v),
+      onClick: openPanel,
       style: {
         width: '100%',
         height: 36,
@@ -50,9 +73,23 @@ function ZhihuFootButton({ wide }: { wide: boolean }) {
     }, [
       h('span', { key: 'icon', style: { fontSize: 15, lineHeight: 1 } }, '知'),
       wide ? h('span', { key: 'label' }, '知乎面板') : null,
+      unread > 0
+        ? h('span', {
+            key: 'badge',
+            style: {
+              marginLeft: 'auto',
+              background: '#00ba7c',
+              color: '#06281c',
+              borderRadius: 999,
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '1px 8px',
+            },
+          }, unread > 99 ? '99+' : String(unread))
+        : null,
     ]),
     open
-      ? h(ZhihuOverlay, { key: 'overlay', onClose: () => setOpen(false) })
+      ? h(ZhihuOverlay, { key: 'overlay', onClose: () => { setOpen(false); setUnread(0) } })
       : null,
   ])
 }

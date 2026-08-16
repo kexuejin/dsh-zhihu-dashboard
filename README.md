@@ -12,7 +12,7 @@ Built on the official [zhihu-cli](https://developer.zhihu.com/zhihu-cli) (知乎
 
 - **热榜 (Hot list)** — today's trending questions/articles, with **trend arrows** (新上榜 / ↑ / ↓) computed by diffing successive snapshots
 - **关注动态 (Feed)** — your recent favorites, your own creations (sort by latest or **most-liked**), and the people you follow
-- **帖子追踪 (Post tracking)** — watch a **question** (all its answers), a **keyword** (similar new content), or a **person** (their new posts, author-filtered). New content is flagged `NEW`; optional **auto-brief** distills newly found posts into app-idea briefs via Zhihu Zhida
+- **帖子追踪 (Post tracking)** — watch a **question** (all its answers), a **keyword** (similar new content), or a **person** (their new posts, author-filtered). New content is flagged `NEW`; optional **auto-brief** distills newly found posts into app-idea briefs via Zhihu Zhida; optional **system notifications + a sidebar unread badge** alert you to new findings
 - Access Secret and limits are configured in the panel's own Settings dialog (stored in browser `localStorage` only)
 
 ### Agent tools (conversation)
@@ -55,7 +55,7 @@ Or add it to your profile's `cordis.patch.yml` bundle layer. Restart `dsh web`.
 | `feedLimit` | 10 | Feed item count (1-50) |
 | `refreshSeconds` | 0 | Auto-refresh for hot/feed (0 = off) |
 
-Panel-only options (browser localStorage): Access Secret, track-check interval, auto-brief toggle.
+Panel-only options (browser localStorage): Access Secret, track-check interval, auto-brief toggle, system-notification toggle.
 
 ## Quotas
 

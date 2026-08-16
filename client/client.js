@@ -18,16 +18,40 @@ window.__ModuleLoader__.load({
 		* conversation-view dependency; the panel is shared across sessions.
 		*/
 		const PANEL_PATH = "/zhihu-dashboard";
+		const UNREAD_KEY = "zhihu.unread";
 		/** Foot button rendered in the official left sidebar (wide row or rail icon). */
 		function ZhihuFootButton({ wide }) {
 			const [open, setOpen] = (0, react.useState)(false);
+			const [unread, setUnread] = (0, react.useState)(() => {
+				try {
+					return Math.max(Number(localStorage.getItem(UNREAD_KEY) || "0"), 0);
+				} catch {
+					return 0;
+				}
+			});
+			(0, react.useEffect)(() => {
+				const onStorage = (e) => {
+					if (e.key === UNREAD_KEY) setUnread(Math.max(Number(e.newValue || "0"), 0));
+				};
+				window.addEventListener("storage", onStorage);
+				return () => window.removeEventListener("storage", onStorage);
+			}, []);
+			const openPanel = () => {
+				setOpen((v) => !v);
+				if (!open) {
+					try {
+						localStorage.setItem(UNREAD_KEY, "0");
+					} catch {}
+					setUnread(0);
+				}
+			};
 			return (0, react.createElement)("div", { style: { display: "contents" } }, [(0, react.createElement)("button", {
 				key: "btn",
 				type: "button",
-				title: "知乎面板",
+				title: unread > 0 ? `知乎面板（${unread} 条新内容）` : "知乎面板",
 				"aria-label": "知乎面板",
 				"aria-expanded": open,
-				onClick: () => setOpen((v) => !v),
+				onClick: openPanel,
 				style: {
 					width: "100%",
 					height: 36,
@@ -43,15 +67,33 @@ window.__ModuleLoader__.load({
 					padding: wide ? "0 12px" : 0,
 					fontSize: 13
 				}
-			}, [(0, react.createElement)("span", {
-				key: "icon",
-				style: {
-					fontSize: 15,
-					lineHeight: 1
-				}
-			}, "知"), wide ? (0, react.createElement)("span", { key: "label" }, "知乎面板") : null]), open ? (0, react.createElement)(ZhihuOverlay, {
+			}, [
+				(0, react.createElement)("span", {
+					key: "icon",
+					style: {
+						fontSize: 15,
+						lineHeight: 1
+					}
+				}, "知"),
+				wide ? (0, react.createElement)("span", { key: "label" }, "知乎面板") : null,
+				unread > 0 ? (0, react.createElement)("span", {
+					key: "badge",
+					style: {
+						marginLeft: "auto",
+						background: "#00ba7c",
+						color: "#06281c",
+						borderRadius: 999,
+						fontSize: 11,
+						fontWeight: 700,
+						padding: "1px 8px"
+					}
+				}, unread > 99 ? "99+" : String(unread)) : null
+			]), open ? (0, react.createElement)(ZhihuOverlay, {
 				key: "overlay",
-				onClose: () => setOpen(false)
+				onClose: () => {
+					setOpen(false);
+					setUnread(0);
+				}
 			}) : null]);
 		}
 		/** Right-side drawer overlay embedding the dashboard page. The shell's
