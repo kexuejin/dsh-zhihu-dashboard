@@ -13,6 +13,7 @@ Built on the official [zhihu-cli](https://developer.zhihu.com/zhihu-cli) (知乎
 - **热榜 (Hot list)** — today's trending questions/articles, with **trend arrows** (新上榜 / ↑ / ↓) computed by diffing successive snapshots
 - **关注动态 (Feed)** — your recent favorites, your own creations (sort by latest or **most-liked**), and the people you follow
 - **帖子追踪 (Post tracking)** — watch a **question** (all its answers), a **keyword** (similar new content), or a **person** (their new posts, author-filtered). New content is flagged `NEW`; optional **auto-brief** distills newly found posts into app-idea briefs via Zhihu Zhida; optional **system notifications + a sidebar unread badge** — the background checker runs in the DSH top window, so you get alerted **while using DSH, without opening the panel**
+- **收藏夹 (Favorites)** — browse your collection list and each collection's content (title/summary/link/collect time/likes)
 - **未读 (Unread)** — an aggregated feed of everything newly found across your tracks (source track / author / time / summary); the sidebar badge jumps straight to it, with one-click mark-all-read
 - Access Secret and limits are configured in the panel's own Settings dialog (stored in browser `localStorage` only)
 
@@ -25,6 +26,8 @@ Built on the official [zhihu-cli](https://developer.zhihu.com/zhihu-cli) (知乎
 | `zhihu_answer` | Zhihu Zhida (retrieval-augmented answer / app-idea distillation) |
 | `zhihu_global_search` | Whole-web search with a recency window (`sinceHours`) and realtime index |
 | `zhihu_followees` | List the users your account follows |
+| `zhihu_my_contents` | Your own creations (sortable by likes to find your best content) |
+| `zhihu_favorites` | Favorite collections / one collection's items |
 
 ## Install
 
@@ -57,6 +60,8 @@ Or add it to your profile's `cordis.patch.yml` bundle layer. Restart `dsh web`.
 | `refreshSeconds` | 0 | Auto-refresh for hot/feed (0 = off) |
 
 Panel-only options (browser localStorage): Access Secret, track-check interval, auto-brief toggle, system-notification toggle.
+
+Today's hot/Zhida quota is shown at the top of the panel so you don't silently run out.
 
 ## Quotas
 

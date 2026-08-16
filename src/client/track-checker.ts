@@ -44,6 +44,7 @@ interface Track {
   lastItems?: Array<{ title: string; url: string; author: string; summary: string; cid: string; isNew: boolean }>
   brief?: string
   briefAt?: number
+  briefs?: Array<{ text: string; at: number }>
 }
 
 function lsGet(key: string): string | null {
@@ -163,15 +164,18 @@ async function checkOne(track: Track, secret: string, autoBrief: boolean): Promi
       appendUnreadItems(track, lastItems.filter((it) => it.isNew))
     }
   }
-  // Auto-brief on new content (one zhida call).
+  // Auto-brief on new content (one zhida call). Keep a small history so the
+  // panel can show a 创意简报 timeline, not just the latest one.
   if (newCount > 0 && autoBrief && cur?.lastItems) {
     const fresh = cur.lastItems.filter((it) => it.isNew).slice(0, 5)
     if (fresh.length > 0) {
       const brief = await distillBrief(track, fresh, secret)
       const again = readTracks().find((t) => t.id === track.id)
       if (again) {
+        const now = Date.now()
         again.brief = brief
-        again.briefAt = Date.now()
+        again.briefAt = now
+        again.briefs = [...(again.briefs ?? []), { text: brief, at: now }].slice(-10)
         writeTracks(readTracks())
       }
     }
