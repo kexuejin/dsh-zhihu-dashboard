@@ -206,6 +206,12 @@
 
   let tab = 'hot'
   let timer = null
+  /** 内存 tab 缓存：切回已加载 tab 立即显示，后台刷新。 */
+  const tabCache = new Map()
+  /** 强制刷新标记：点"刷新"按钮时置 true，跳过缓存直接重新加载。 */
+  let forcedRefresh = false
+  /** 后台刷新标记：静默更新，不闪状态栏。 */
+  let isBackgroundRefresh = false
 
   function lsGet(key, fallback) {
     try { const v = localStorage.getItem(key); return v === null ? fallback : v } catch { return fallback }
@@ -420,6 +426,16 @@
         return
       }
     } catch { /* cli-check is best-effort */ }
+    // 内存 tab 缓存：切回已加载过的 tab 时立即恢复内容，再静默后台刷新。
+    const cached = tabCache.get(tab)
+    if (cached !== undefined && !forcedRefresh) {
+      $('content').innerHTML = cached.html
+      $('updated').textContent = cached.updated
+      // 后台刷新（不阻塞显示）
+      void refreshTab(tab)
+      return
+    }
+    forcedRefresh = false
     let url
     if (tab === 'hot') {
       url = `/zhihu-dashboard/api/hot?limit=${cfg.hotLimit}`
@@ -441,23 +457,23 @@
       renderTrackShell()
       return
     }
-    $('status').textContent = '请求中…'
+    if (!isBackgroundRefresh) $('status').textContent = '请求中…'
     let payload
     try {
       payload = await fetchJson(url, secret)
     } catch (error) {
-      $('status').textContent = '请求失败'
+      if (!isBackgroundRefresh) $('status').textContent = '请求失败'
       showBanner(String(error.message || error))
       return
     }
     if (payload.ok === false) {
-      $('status').textContent = '失败'
+      if (!isBackgroundRefresh) $('status').textContent = '失败'
       showBanner(payload.error || '请求失败', payload.actionUrl)
       $('content').innerHTML = '<div class="empty">无数据 —— 请先在设置中填入 Access Secret</div>'
       return
     }
     hideBanner()
-    $('status').textContent = '已更新'
+    if (!isBackgroundRefresh) $('status').textContent = '已更新'
     const entries = normalize(payload)
     // 热榜趋势：对比上一次采样，标记新上榜 / 上升 / 下降。
     let trend = null
@@ -465,7 +481,17 @@
     renderList(entries, trend)
     const clock = new Date().toLocaleTimeString('zh-CN', { hour12: false })
     $('updated').textContent = `最近更新 ${clock} · ${entries.length} 条`
+    tabCache.set(tab, { html: $('content').innerHTML, updated: $('updated').textContent })
     schedule()
+  }
+
+  /** 静默刷新当前 tab（用于缓存命中后的后台更新），强制走网络。 */
+  async function refreshTab(name) {
+    const savedTab = tab
+    tab = name
+    forcedRefresh = true
+    isBackgroundRefresh = true
+    try { await load() } finally { tab = savedTab; forcedRefresh = false; isBackgroundRefresh = false }
   }
 
   /** First-run onboarding: guide the user to obtain and enter an Access Secret. */
@@ -1297,7 +1323,12 @@
   }
 
   document.querySelectorAll('.tab').forEach((el) => el.addEventListener('click', () => switchTab(el.dataset.tab)))
-  $('refresh').addEventListener('click', () => { if (timer) clearTimeout(timer); load() })
+  $('refresh').addEventListener('click', () => {
+    if (timer) clearTimeout(timer)
+    forcedRefresh = true
+    tabCache.delete(tab)
+    load()
+  })
   $('open-settings').addEventListener('click', openSettings)
   $('close-settings').addEventListener('click', () => $('settings').classList.remove('open'))
   $('save-settings').addEventListener('click', saveSettings)
