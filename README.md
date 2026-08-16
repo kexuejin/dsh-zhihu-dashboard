@@ -12,7 +12,7 @@ Built on the official [zhihu-cli](https://developer.zhihu.com/zhihu-cli) (知乎
 
 - **热榜 (Hot list)** — today's trending questions/articles, with **trend arrows** (新上榜 / ↑ / ↓) computed by diffing successive snapshots
 - **关注动态 (Feed)** — your recent favorites, your own creations (sort by latest or **most-liked**), and the people you follow
-- **帖子追踪 (Post tracking)** — watch a **question** (all its answers), a **keyword** (similar new content), or a **person** (their new posts, author-filtered). New content is flagged `NEW`; optional **auto-brief** distills newly found posts into app-idea briefs via Zhihu Zhida; optional **system notifications + a sidebar unread badge** alert you to new findings
+- **帖子追踪 (Post tracking)** — watch a **question** (all its answers), a **keyword** (similar new content), or a **person** (their new posts, author-filtered). New content is flagged `NEW`; optional **auto-brief** distills newly found posts into app-idea briefs via Zhihu Zhida; optional **system notifications + a sidebar unread badge** — the background checker runs in the DSH top window, so you get alerted **while using DSH, without opening the panel**
 - Access Secret and limits are configured in the panel's own Settings dialog (stored in browser `localStorage` only)
 
 ### Agent tools (conversation)
@@ -44,7 +44,7 @@ Or add it to your profile's `cordis.patch.yml` bundle layer. Restart `dsh web`.
 ## How it works
 
 - **Host half** (`lib/`): serves `/zhihu-dashboard` routes behind the same Host/Origin trust fence as the DSH API gateway, drives the zhihu-cli binary, and registers the five agent tools via `ctx.tools.register`
-- **Client half** (`src/client/`, bundled to `client/client.js`): a **知乎面板** button in the official sidebar foot (`sidebar.footer.action`) opens a right-hand drawer (`shell.overlay`) embedding the panel — global, shared across sessions, no third-party sidebar dependency
+- **Client half** (`src/client/`, bundled to `client/client.js`): a **知乎面板** button in the official sidebar foot (`sidebar.footer.action`) opens a right-hand drawer (`shell.overlay`) embedding the panel — global, shared across sessions, no third-party sidebar dependency; it also mounts the **background track checker** (`track-checker.ts`, running with the DSH top window) which checks tracked items on a schedule and raises system notifications / the sidebar unread badge when something new appears
 
 ## Configuration
 
