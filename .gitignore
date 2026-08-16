@@ -1,0 +1,17 @@
+# Dependencies (installed for development/build only)
+node_modules/
+.pnpm-store/
+
+# Build outputs — lib/ and client/ are committed for runtime (the bundle
+# layer serves them without a build step); regenerate with tsdown.
+# client/client.js.map is the browser sourcemap (served by client-modules).
+
+# Editor / OS noise
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Local scratch
+/tmp/
+*.log

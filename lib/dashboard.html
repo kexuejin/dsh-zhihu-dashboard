@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>知乎面板 · dsh-zhihu-dashboard</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --card: #171e26;
+    --card2: #1c2530;
+    --text: #e7e9ea;
+    --muted: #8b98a5;
+    --accent: #0f88eb;
+    --accent2: #00a3ff;
+    --border: #2f3a45;
+    --danger: #f4212e;
+    --ok: #00ba7c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px;
+    background: rgba(15, 20, 25, .92);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  h1 { font-size: 16px; margin: 0; font-weight: 700; white-space: nowrap; }
+  .brand { color: var(--accent2); }
+  .tabs { display: flex; gap: 4px; }
+  .tab {
+    border: 1px solid var(--border); background: var(--card);
+    color: var(--muted); padding: 6px 14px; border-radius: 999px;
+    cursor: pointer; font-size: 13px;
+  }
+  .tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .spacer { flex: 1; }
+  button.ghost {
+    border: 1px solid var(--border); background: var(--card2);
+    color: var(--text); padding: 6px 12px; border-radius: 8px;
+    cursor: pointer; font-size: 13px;
+  }
+  button.ghost:hover { border-color: var(--accent); }
+  .status { font-size: 12px; color: var(--muted); max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  main { max-width: 860px; margin: 0 auto; padding: 16px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
+  }
+  .card .title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .card .title a { color: var(--text); text-decoration: none; }
+  .card .title a:hover { color: var(--accent2); }
+  .card .meta { font-size: 12px; color: var(--muted); margin-bottom: 6px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .card .summary { color: var(--muted); font-size: 13px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+  .banner {
+    border: 1px solid var(--danger); background: rgba(244, 33, 46, .08);
+    color: var(--danger); border-radius: 12px; padding: 10px 14px; margin-bottom: 12px;
+    font-size: 13px; display: flex; align-items: center; gap: 10px;
+  }
+  .banner.ok { border-color: var(--ok); background: rgba(0, 186, 124, .08); color: var(--ok); }
+  .banner a { color: inherit; }
+  .banner button { margin-left: auto; }
+  #settings {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55);
+    display: none; align-items: center; justify-content: center; z-index: 20;
+  }
+  #settings.open { display: flex; }
+  .panel {
+    background: var(--card2); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px; width: min(520px, 92vw);
+  }
+  .panel h2 { margin: 0 0 14px; font-size: 15px; }
+  .panel label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  .panel input, .panel select {
+    width: 100%; padding: 8px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px;
+  }
+  .panel .row { display: flex; gap: 10px; }
+  .panel .row > div { flex: 1; }
+  .panel .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .rank { color: var(--accent2); font-weight: 700; margin-right: 4px; }
+  .thumb { border-radius: 8px; margin: 6px 0 0; max-height: 120px; object-fit: cover; }
+  .tag { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+  .updated { font-size: 11px; color: var(--muted); text-align: center; margin-top: 18px; }
+  .badge-new {
+    display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
+    background: var(--ok); color: #06281c; font-size: 11px; font-weight: 700;
+  }
+  .track-head {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+  }
+  .track-head .query { flex: 1; font-size: 14px; font-weight: 600; }
+  .track-head .meta { font-size: 11px; color: var(--muted); }
+  .track-empty { text-align: center; color: var(--muted); padding: 24px 0; font-size: 13px; }
+  .new-card { border-color: var(--ok); }
+  .new-card .title a { color: var(--ok); }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="brand">知乎</span>面板</h1>
+  <nav class="tabs">
+    <button class="tab active" data-tab="hot" id="tab-hot">热榜</button>
+    <button class="tab" data-tab="feed" id="tab-feed">关注动态</button>
+    <button class="tab" data-tab="track" id="tab-track">帖子追踪</button>
+  </nav>
+  <div class="spacer"></div>
+  <div class="status" id="status">加载中…</div>
+  <button class="ghost" id="refresh">刷新</button>
+  <button class="ghost" id="open-settings">设置</button>
+</header>
+
+<main>
+  <div id="banner" class="banner" style="display:none"></div>
+  <div id="content"><div class="empty">加载中…</div></div>
+  <div class="updated" id="updated"></div>
+</main>
+
+<div id="settings">
+  <div class="panel">
+    <h2>设置</h2>
+    <label for="secret">Access Secret（知乎开放平台）</label>
+    <div style="display:flex;gap:8px">
+      <input id="secret" type="password" autocomplete="off" placeholder="zh-…" style="flex:1">
+      <button class="ghost" id="verify-secret" style="flex:none">验证</button>
+    </div>
+    <div id="verify-result" style="font-size:12px;margin-top:6px;min-height:16px"></div>
+    <div class="hint">仅保存在本浏览器 localStorage，每次请求经同源接口注入 CLI，不写入系统密钥链。获取：<a href="https://developer.zhihu.com/profile" target="_blank" rel="noreferrer">developer.zhihu.com/profile</a></div>
+    <div class="row">
+      <div>
+        <label for="hotLimit">热榜条数 (1-30)</label>
+        <input id="hotLimit" type="number" min="1" max="30">
+      </div>
+      <div>
+        <label for="feedLimit">动态条数 (1-50)</label>
+        <input id="feedLimit" type="number" min="1" max="50">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="refreshSeconds">自动刷新（秒，0=关）</label>
+        <input id="refreshSeconds" type="number" min="0" max="3600">
+      </div>
+      <div>
+        <label for="feedSource">动态来源</label>
+        <select id="feedSource">
+          <option value="favorites">我的近期收藏</option>
+          <option value="contents">我的创作</option>
+          <option value="followees">我关注的人</option>
+        </select>
+      </div>
+      <div>
+        <label for="contentsSort">创作排序（仅"我的创作"）</label>
+        <select id="contentsSort">
+          <option value="ts">最新发布</option>
+          <option value="like_count">点赞最多</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="trackInterval">追踪检查间隔（分钟，0=关）</label>
+        <input id="trackInterval" type="number" min="0" max="1440">
+      </div>
+      <div>
+        <label for="autoBrief">自动创意简报</label>
+        <div style="display:flex;align-items:center;gap:8px;padding-top:7px">
+          <input id="autoBrief" type="checkbox" style="width:auto">
+          <span class="hint" style="margin:0">发现新回答时自动调知乎直答提炼创意（每次消耗 1 次直答额度，100/天）</span>
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="ghost" id="close-settings">关闭</button>
+      <button class="ghost" id="save-settings">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict'
+  const $ = (id) => document.getElementById(id)
+  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', trackInterval: 'zhihu.trackInterval', autoBrief: 'zhihu.autoBrief' }
+
+  let tab = 'hot'
+  let timer = null
+  let trackTimer = null
+
+  function lsGet(key, fallback) {
+    try { const v = localStorage.getItem(key); return v === null ? fallback : v } catch { return fallback }
+  }
+  function lsSet(key, value) {
+    try { localStorage.setItem(key, value) } catch { /* private mode */ }
+  }
+
+  function config() {
+    return {
+      secret: lsGet(LS.secret, ''),
+      hotLimit: Number(lsGet(LS.hotLimit, '10')) || 10,
+      feedLimit: Number(lsGet(LS.feedLimit, '10')) || 10,
+      refreshSeconds: Number(lsGet(LS.refreshSeconds, '0')) || 0,
+      feedSource: lsGet(LS.feedSource, 'favorites'),
+      contentsSort: lsGet(LS.contentsSort, 'ts'),
+      trackInterval: Number(lsGet(LS.trackInterval, '0')) || 0,
+      autoBrief: lsGet(LS.autoBrief, '0') === '1',
+    }
+  }
+
+  async function fetchJson(url, secret) {
+    const headers = {}
+    if (secret) headers['x-zhihu-secret'] = secret
+    const res = await fetch(url, { headers, cache: 'no-store' })
+    const body = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status} 非 JSON 响应` }))
+    if (!res.ok && body.ok === undefined) body.ok = false
+    return body
+  }
+
+  function showBanner(message, actionUrl) {
+    const banner = $('banner')
+    banner.style.display = 'flex'
+    banner.className = 'banner'
+    banner.innerHTML = ''
+    const span = document.createElement('span')
+    span.textContent = message
+    banner.appendChild(span)
+    if (actionUrl) {
+      const a = document.createElement('a')
+      a.href = actionUrl
+      a.target = '_blank'
+      a.rel = 'noreferrer'
+      a.textContent = '去申请 Access Secret'
+      banner.appendChild(a)
+    }
+    const btn = document.createElement('button')
+    btn.className = 'ghost'
+    btn.textContent = '✕'
+    btn.onclick = () => { banner.style.display = 'none' }
+    banner.appendChild(btn)
+  }
+  function hideBanner() { $('banner').style.display = 'none' }
+
+  /** Normalize CLI payloads into a display list: {title, url, summary, author, thumb}. */
+  function normalize(payload) {
+    if (!payload || !payload.Data) return []
+    const items = Array.isArray(payload.Data) ? payload.Data
+      : Array.isArray(payload.Data.Items) ? payload.Data.Items
+      : Array.isArray(payload.Data.List) ? payload.Data.List : []
+    return items.map((it) => ({
+      title: it.Title || it.title || it.Name || '',
+      url: it.Url || it.url || '',
+      summary: it.Summary || it.summary || it.ContentText || it.excerpt || '',
+      author: it.AuthorName || (it.Author && it.Author.Name) || '',
+      thumb: it.ThumbnailUrl || it.thumbnail || '',
+      cid: String(it.ContentID || it.ContentId || it.id || ''),
+    }))
+  }
+
+  function renderList(entries, trend) {
+    const box = $('content')
+    if (entries.length === 0) {
+      box.innerHTML = '<div class="empty">暂无数据</div>'
+      return
+    }
+    box.innerHTML = ''
+    entries.forEach((it, idx) => {
+      const card = document.createElement('div')
+      card.className = 'card'
+      const title = document.createElement('div')
+      title.className = 'title'
+      if (it.url) {
+        const a = document.createElement('a')
+        a.href = it.url
+        a.target = '_blank'
+        a.rel = 'noreferrer'
+        a.textContent = it.title || '(无标题)'
+        title.appendChild(a)
+      } else {
+        title.textContent = it.title || '(无标题)'
+      }
+      card.appendChild(title)
+      const meta = document.createElement('div')
+      meta.className = 'meta'
+      if (tab === 'hot') {
+        const rank = document.createElement('span')
+        rank.className = 'rank'
+        rank.textContent = `#${idx + 1}`
+        meta.appendChild(rank)
+        // 趋势标记
+        if (trend && it.cid) {
+          const t = trend[it.cid]
+          if (t === undefined) {
+            // 本次新出现（上一份快照没有）
+            const fresh = document.createElement('span')
+            fresh.className = 'badge-new'
+            fresh.textContent = '新上榜'
+            meta.appendChild(fresh)
+          } else if (t.delta > 0) {
+            const up = document.createElement('span')
+            up.style.cssText = 'color:var(--ok);font-size:11px;font-weight:700'
+            up.textContent = `↑ ${t.delta}`
+            meta.appendChild(up)
+          } else if (t.delta < 0) {
+            const down = document.createElement('span')
+            down.style.cssText = 'color:var(--muted);font-size:11px'
+            down.textContent = `↓ ${-t.delta}`
+            meta.appendChild(down)
+          }
+        }
+      }
+      if (it.author) {
+        const author = document.createElement('span')
+        author.textContent = `@ ${it.author}`
+        meta.appendChild(author)
+      }
+      card.appendChild(meta)
+      if (it.summary) {
+        const summary = document.createElement('div')
+        summary.className = 'summary'
+        summary.textContent = it.summary.replace(/<[^>]*>/g, '')
+        card.appendChild(summary)
+      }
+      if (it.thumb) {
+        const img = document.createElement('img')
+        img.className = 'thumb'
+        img.src = it.thumb
+        img.alt = ''
+        img.loading = 'lazy'
+        card.appendChild(img)
+      }
+      box.appendChild(card)
+    })
+  }
+
+  async function load() {
+    const cfg = config()
+    const secret = cfg.secret
+    if (!secret) {
+      // First-run onboarding: no Access Secret yet — guide the user instead of
+      // firing requests that will all fail with AUTH_REQUIRED.
+      renderOnboarding()
+      return
+    }
+    let url
+    if (tab === 'hot') {
+      url = `/zhihu-dashboard/api/hot?limit=${cfg.hotLimit}`
+    } else if (tab === 'feed') {      const source = cfg.feedSource
+      if (source === 'followees') {
+        renderFollowees()
+        return
+      }
+      const sort = source === 'contents' ? `&sort=${encodeURIComponent(cfg.contentsSort)}` : ''
+      url = `/zhihu-dashboard/api/feed?source=${encodeURIComponent(source)}&limit=${cfg.feedLimit}${sort}`
+    } else {
+      // track tab: render the tracker; refresh() re-checks every tracked query.
+      renderTrackShell()
+      return
+    }
+    $('status').textContent = '请求中…'
+    let payload
+    try {
+      payload = await fetchJson(url, secret)
+    } catch (error) {
+      $('status').textContent = '请求失败'
+      showBanner(String(error.message || error))
+      return
+    }
+    if (payload.ok === false) {
+      $('status').textContent = '失败'
+      showBanner(payload.error || '请求失败', payload.actionUrl)
+      $('content').innerHTML = '<div class="empty">无数据 —— 请先在设置中填入 Access Secret</div>'
+      return
+    }
+    hideBanner()
+    $('status').textContent = '已更新'
+    const entries = normalize(payload)
+    // 热榜趋势：对比上一次采样，标记新上榜 / 上升 / 下降。
+    let trend = null
+    if (tab === 'hot') trend = compareHotHistory(entries)
+    renderList(entries, trend)
+    const clock = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    $('updated').textContent = `最近更新 ${clock} · ${entries.length} 条`
+    schedule()
+  }
+
+  /** First-run onboarding: guide the user to obtain and enter an Access Secret. */
+  function renderOnboarding() {
+    const box = $('content')
+    $('status').textContent = '需要配置 Access Secret'
+    box.innerHTML = `
+      <div class="card" style="max-width:640px;margin:0 auto">
+        <div class="title" style="font-size:16px;margin-bottom:8px">开始使用知乎面板</div>
+        <div class="summary" style="-webkit-line-clamp:unset;color:var(--text);font-size:13px;line-height:1.8">
+          面板需要知乎开放平台的 <b>Access Secret</b> 才能读取热榜、你的收藏/创作和追踪内容。只需三步：
+        </div>
+        <div style="margin:10px 0 0;font-size:13px;line-height:1.9;color:var(--text)">
+          <div>① 打开 <a href="https://developer.zhihu.com/profile" target="_blank" rel="noreferrer" style="color:var(--accent2)">developer.zhihu.com/profile</a>，用你的知乎账号登录</div>
+          <div>② 点击「申请新 Access Secret」，复制生成的 <code style="background:var(--card2);padding:1px 6px;border-radius:4px">zh-…</code> 开头的字符串</div>
+          <div>③ 粘贴到下方输入框，点「保存并验证」（也可用 zhihu-cli：<code style="background:var(--card2);padding:1px 6px;border-radius:4px">printf '%s' 'zh-…' | zhihu-cli auth set --secret-stdin</code>）</div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+          <input id="onboard-secret" type="password" autocomplete="off" placeholder="zh-…"
+            style="flex:1;min-width:220px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px">
+          <button class="ghost" id="onboard-save">保存并验证</button>
+        </div>
+        <div id="onboard-result" style="margin-top:10px;font-size:13px;min-height:20px"></div>
+        <div class="hint">Access Secret 仅保存在本浏览器 localStorage，经同源请求注入，不会写入系统钥匙串。</div>
+      </div>
+    `
+    const save = async () => {
+      const value = $('onboard-secret').value.trim()
+      if (!value) return
+      const result = $('onboard-result')
+      result.textContent = '验证中…'
+      lsSet(LS.secret, value)
+      const payload = await fetchJson('/zhihu-dashboard/api/auth?verify=1', value).catch(() => null)
+      if (payload && payload.ok === true && payload.verification && payload.verification !== 'not_performed') {
+        result.style.color = 'var(--ok)'
+        result.textContent = '✓ 验证通过！正在加载…'
+        setTimeout(load, 500)
+      } else {
+        result.style.color = 'var(--danger)'
+        const reason = payload && payload.error
+          ? String(payload.error)
+          : (payload && payload.verification ? `验证未通过（${payload.verification}）` : '验证失败')
+        result.textContent = `${reason} —— 请检查 Secret 是否正确（注意大小写与开头 zh-）`
+        // 保留输入，让用户重试
+        lsSet(LS.secret, '')
+      }
+    }
+    $('onboard-save').addEventListener('click', save)
+    $('onboard-secret').addEventListener('keydown', (e) => { if (e.key === 'Enter') save() })
+  }
+
+  // ── 热榜趋势：zhihu.hotHistory 存 {cid: rank, ts} 的最近快照，对比当前榜。
+  function compareHotHistory(entries) {    const map = new Map()
+    entries.forEach((it, idx) => {
+      if (it.cid) map.set(it.cid, idx + 1)
+    })
+    if (map.size === 0) return null
+    const prevRaw = (() => { try { return JSON.parse(localStorage.getItem('zhihu.hotHistory') || 'null') } catch { return null } })()
+    const trend = {}
+    if (prevRaw && typeof prevRaw === 'object') {
+      for (const [cid, rank] of Object.entries(prevRaw)) {
+        const cur = map.get(cid)
+        if (cur !== undefined) trend[cid] = { delta: cur - rank } // +上升 -下降
+      }
+    }
+    // 存本次快照（只留最近 1 份，足够做相邻对比）
+    const snap = {}
+    for (const [cid, rank] of map) snap[cid] = rank
+    try { localStorage.setItem('zhihu.hotHistory', JSON.stringify(snap)) } catch { /* private mode */ }
+    return trend
+  }
+
+  function schedule() {
+    if (timer) clearTimeout(timer)
+    const seconds = config().refreshSeconds
+    if (seconds > 0) timer = setTimeout(load, seconds * 1000)
+  }
+
+  /** Learn tab chrome: a query box plus search/analyze actions and result areas. */
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  }
+
+  // ── 帖子追踪：每个追踪项保存 {id, query, seen: {contentId: 1}}，搜索后用
+  // ContentID 去重，未见过的新结果标 "NEW"。
+
+  function readTracks() {
+    try {
+      const raw = localStorage.getItem(LS.tracks)
+      const list = raw === null ? [] : JSON.parse(raw)
+      return Array.isArray(list) ? list.filter((t) => t && typeof t.query === 'string') : []
+    } catch {
+      return []
+    }
+  }
+
+  function writeTracks(list) {
+    try { localStorage.setItem(LS.tracks, JSON.stringify(list)) } catch { /* private mode */ }
+  }
+
+  function addTrack(queryText) {
+    const text = String(queryText ?? '').trim()
+    if (!text) return
+    const list = readTracks()
+    if (list.some((t) => t.query === text || t.questionId === text)) return // dedupe
+    list.push({ id: String(Date.now()), query: text, seen: {}, createdAt: Date.now() })
+    writeTracks(list)
+  }
+
+  /** Detect a zhihu.com/question link and resolve its title via zhida, then add as a question-track. */
+  async function addQuestionTrack(input) {
+    const text = String(input ?? '').trim()
+    const m = text.match(/question\/(\d+)/)
+    if (m === null) return false
+    const qid = m[1]
+    const list = readTracks()
+    if (list.some((t) => t.questionId === qid)) return true // already tracked
+    $('status').textContent = '解析问题标题中…'
+    const secret = config().secret
+    let payload
+    try {
+      payload = await fetchJson(`/zhihu-dashboard/api/question-title?q=${encodeURIComponent(qid)}`, secret)
+    } catch {
+      payload = null
+    }
+    if (payload && payload.ok === true && payload.title) {
+      const title = String(payload.title)
+      list.push({ id: String(Date.now()), query: title, questionId: qid, seen: {}, createdAt: Date.now() })
+      writeTracks(list)
+      $('status').textContent = `已追踪问题：${title}`
+      return true
+    }
+    // Fallback: zhida/search could not resolve the title — ask the user to type it.
+    const title = prompt('知乎没有索引到这个问题的标题，无法自动解析。\n请输入该问题的标题（用于搜索它下面的回答）：', '')
+    if (title !== null && title.trim() !== '') {
+      list.push({ id: String(Date.now()), query: title.trim(), questionId: qid, seen: {}, createdAt: Date.now() })
+      writeTracks(list)
+      $('status').textContent = `已追踪问题：${title.trim()}`
+    } else {
+      $('status').textContent = '已取消追踪（未提供标题）'
+    }
+    return true
+  }
+
+  function removeTrack(id) {
+    writeTracks(readTracks().filter((t) => t.id !== id))
+  }
+
+  /** Mark every currently-visible ContentID of one track as seen. */
+  function markTrackSeen(id, seen) {
+    const list = readTracks()
+    const track = list.find((t) => t.id === id)
+    if (!track) return
+    track.seen = Object.assign({}, track.seen, seen || {})
+    track.checkedAt = Date.now()
+    writeTracks(list)
+  }
+
+  /** Fetch and render the followees list (我关注的人). */
+  async function renderFollowees() {
+    const box = $('content')
+    box.innerHTML = '<div class="empty">加载关注列表…</div>'
+    $('status').textContent = '加载中…'
+    const secret = config().secret
+    let payload
+    try {
+      payload = await fetchJson(`/zhihu-dashboard/api/followees?limit=50`, secret)
+    } catch (error) {
+      $('status').textContent = '加载失败'
+      showBanner(String(error.message || error))
+      return
+    }
+    if (payload.ok === false) {
+      $('status').textContent = '加载失败'
+      showBanner(payload.error || '加载失败', payload.actionUrl)
+      box.innerHTML = '<div class="empty">无法加载关注列表</div>'
+      return
+    }
+    hideBanner()
+    const items = Array.isArray(payload.Data?.Items) ? payload.Data.Items : []
+    $('status').textContent = `共关注 ${items.length} 人`
+    if (items.length === 0) {
+      box.innerHTML = '<div class="empty">暂无关注的人</div>'
+      return
+    }
+    box.innerHTML = ''
+    items.forEach((it) => {
+      const card = document.createElement('div')
+      card.className = 'card'
+      card.style.cssText += 'display:flex;gap:12px;align-items:center'
+      // Avatar
+      if (it.AvatarUrl) {
+        const img = document.createElement('img')
+        img.src = it.AvatarUrl
+        img.alt = ''
+        img.style.cssText = 'width:44px;height:44px;border-radius:50%;flex:none;object-fit:cover'
+        card.appendChild(img)
+      }
+      const body = document.createElement('div')
+      body.style.cssText = 'flex:1;min-width:0'
+      const name = document.createElement('div')
+      name.className = 'title'
+      const a = document.createElement('a')
+      a.href = it.Url || '#'
+      a.target = '_blank'
+      a.rel = 'noreferrer'
+      a.textContent = it.Name || '(未知用户)'
+      name.appendChild(a)
+      body.appendChild(name)
+      if (it.Headline) {
+        const hl = document.createElement('div')
+        hl.className = 'summary'
+        hl.textContent = it.Headline
+        body.appendChild(hl)
+      }
+      card.appendChild(body)
+      if (it.FollowerCount) {
+        const meta = document.createElement('span')
+        meta.className = 'tag'
+        meta.textContent = `粉丝 ${it.FollowerCount}`
+        card.appendChild(meta)
+      }
+      const trackBtn = document.createElement('button')
+      trackBtn.className = 'ghost'
+      trackBtn.textContent = '追踪 TA'
+      trackBtn.style.cssText = 'flex:none'
+      const personName = it.Name || ''
+      const alreadyTracked = readTracks().some((t) => t.type === 'person' && t.query === personName)
+      trackBtn.disabled = alreadyTracked
+      trackBtn.title = alreadyTracked ? '已在追踪' : '追踪 TA 的新内容'
+      trackBtn.addEventListener('click', () => {
+        const list = readTracks()
+        if (list.some((t) => t.type === 'person' && t.query === personName)) return
+        list.push({ id: String(Date.now()), query: personName, type: 'person', seen: {}, createdAt: Date.now() })
+        writeTracks(list)
+        trackBtn.disabled = true
+        trackBtn.textContent = '已追踪'
+        $('status').textContent = `已追踪 ${personName}`
+      })
+      card.appendChild(trackBtn)
+      box.appendChild(card)
+    })
+  }
+
+  /** Track tab chrome: add box + track list; refresh() re-checks each query. */
+  function renderTrackShell() {
+    const box = $('content')
+    const tracks = readTracks()
+    let totalNew = 0
+    for (const t of tracks) {
+      const unseen = Object.keys(t.seen || {})
+      // New count = items discovered in the last check that were unseen before.
+      // We store lastItems to diff against; unseen keys carry their item titles.
+      totalNew += t.lastNew || 0
+    }
+    box.innerHTML = `
+      <div class="card" style="margin-bottom:12px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input id="track-q" type="text" placeholder="粘贴知乎问题链接 或 输入关键词（如：AI 应用创意）"
+            style="flex:1;min-width:220px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px">
+          <button class="ghost" id="track-add">+ 追踪</button>
+          <button class="ghost" id="track-check">检查更新</button>
+        </div>
+        <div class="hint">持续监控：问题链接（zhihu.com/question/…）→ 自动解析标题并追踪该问题下的回答；关键词 → 追踪同类新内容。每次「检查更新」搜索一次，新出现的回答标 <span style="color:var(--ok);font-weight:700">NEW</span>；可在设置中配置自动检查间隔。解析不到标题时会提示手动输入。</div>
+      </div>
+      <div id="track-list"></div>
+    `
+    const submitAdd = () => {
+      const v = $('track-q').value
+      if (v.trim() === '') return
+      if (/question\/\d+/.test(v)) {
+        void addQuestionTrack(v).then((done) => { if (done) { $('track-q').value = ''; renderTrackShell(); checkTracks() } })
+      } else {
+        addTrack(v)
+        $('track-q').value = ''
+        renderTrackShell()
+        checkTracks()
+      }
+    }
+    $('track-add').addEventListener('click', submitAdd)
+    $('track-check').addEventListener('click', () => checkTracks())
+    $('track-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAdd() })
+    renderTrackList()
+  }
+
+  /** Render the persisted track list with per-track states. */
+  function renderTrackList() {
+    const listEl = $('track-list')
+    const tracks = readTracks()
+    if (tracks.length === 0) {
+      listEl.innerHTML = '<div class="track-empty">还没有追踪项 —— 添加一个你关注的问题/话题，有新回答或新创意时会标 NEW。</div>'
+      return
+    }
+    listEl.innerHTML = ''
+    tracks.forEach((t) => {
+      const card = document.createElement('div')
+      card.className = 'card'
+      const head = document.createElement('div')
+      head.className = 'track-head'
+      const query = document.createElement('span')
+      query.className = 'query'
+      query.textContent = t.query
+      head.appendChild(query)
+      if (t.questionId) {
+        const qtag = document.createElement('span')
+        qtag.className = 'tag'
+        qtag.textContent = `问题 #${t.questionId}`
+        head.appendChild(qtag)
+      }
+      if (t.type === 'person') {
+        const ptag = document.createElement('span')
+        ptag.className = 'tag'
+        ptag.textContent = '👤 关注的人'
+        head.appendChild(ptag)
+      }
+      if (t.lastNew > 0) {
+        const badge = document.createElement('span')
+        badge.className = 'badge-new'
+        badge.textContent = `${t.lastNew} 新增`
+        head.appendChild(badge)
+      }
+      if (t.brief) {
+        const briefTag = document.createElement('span')
+        briefTag.className = 'tag'
+        briefTag.textContent = '📋 创意简报'
+        briefTag.style.cssText = 'border-color:var(--accent2);color:var(--accent2);cursor:pointer'
+        briefTag.title = '查看创意简报'
+        briefTag.addEventListener('click', () => expandTrack(t.id, true))
+        head.appendChild(briefTag)
+      }
+      const meta = document.createElement('span')
+      meta.className = 'meta'
+      meta.textContent = t.checkedAt ? `上次检查 ${new Date(t.checkedAt).toLocaleString('zh-CN', { hour12: false })}` : '尚未检查'
+      head.appendChild(meta)
+      card.appendChild(head)
+      const actions = document.createElement('div')
+      actions.style.cssText = 'display:flex;gap:8px;margin-top:8px'
+      const open = document.createElement('button')
+      open.className = 'ghost'
+      open.textContent = '查看内容'
+      open.addEventListener('click', () => expandTrack(t.id))
+      actions.appendChild(open)
+      const del = document.createElement('button')
+      del.className = 'ghost'
+      del.textContent = '删除'
+      del.addEventListener('click', () => { removeTrack(t.id); renderTrackShell() })
+      actions.appendChild(del)
+      card.appendChild(actions)
+      listEl.appendChild(card)
+    })
+  }
+
+  /** Re-check every tracked query: search each, diff ContentIDs, persist new ones. */
+  /** Re-check every tracked query: search each, diff ContentIDs, persist new ones. */
+  async function checkTracks() {
+    const tracks = readTracks()
+    if (tracks.length === 0) return
+    $('status').textContent = '检查更新中…'
+    let totalNew = 0
+    for (const t of tracks) {
+      const newCount = await checkOneTrack(t.id)
+      if (newCount > 0) totalNew += newCount
+    }
+    if (totalNew > 0) {
+      $('status').textContent = `🔔 追踪发现 ${totalNew} 条新内容`
+    } else {
+      $('status').textContent = '检查完成，无新增'
+    }
+    renderTrackList()
+  }
+
+  /**
+   * Search one tracked query and diff against its seen ContentIDs.
+   * @returns the number of newly discovered items (0 on first check / failure).
+   */
+  async function checkOneTrack(id) {
+    const tracks = readTracks()
+    const track = tracks.find((t) => t.id === id)
+    if (!track) return 0
+    const secret = config().secret
+    const before = new Set(Object.keys(track.seen || {}))
+    const isFirstCheck = before.size === 0
+    let payload
+    try {
+      if (track.questionId && track.query) {
+        // Question-track: search the resolved title (answers under that question).
+        payload = await fetchJson(`/zhihu-dashboard/api/answers?q=${encodeURIComponent(track.questionId)}&title=${encodeURIComponent(track.query)}&count=10`, secret)
+      } else if (track.type === 'person') {
+        // Person-track: search the name, then keep only items authored by them.
+        payload = await fetchJson(`/zhihu-dashboard/api/learn?q=${encodeURIComponent(track.query)}&count=10`, secret)
+      } else {
+        // Keyword-track: plain search.
+        payload = await fetchJson(`/zhihu-dashboard/api/learn?q=${encodeURIComponent(track.query)}&count=10`, secret)
+      }
+    } catch {
+      return 0
+    }
+    if (payload.ok !== true || !Array.isArray(payload.Data?.Items)) return 0
+    let items = payload.Data.Items
+    if (track.type === 'person') {
+      // Keep only content the tracked person actually wrote (search may also
+      // return content merely mentioning the name).
+      const name = String(track.query || '').trim()
+      items = items.filter((it) => String(it.AuthorName || '').trim() === name)
+    }
+    const seenNow = {}
+    let newCount = 0
+    for (const it of items) {
+      const cid = String(it.ContentID || '')
+      if (!cid) continue
+      seenNow[cid] = true
+      if (!before.has(cid)) newCount++
+    }
+    // First check only establishes the baseline: nothing is "new" yet.
+    if (isFirstCheck) newCount = 0
+    // Persist: keep prior seen (in case search misses some) and add current.
+    const merged = Object.assign({}, track.seen || {}, seenNow)
+    const list = readTracks()
+    const cur = list.find((x) => x.id === id)
+    if (cur) {
+      cur.seen = merged
+      cur.checkedAt = Date.now()
+      cur.lastNew = newCount
+      // Keep the newest items for display when the user expands.
+      cur.lastItems = items.map((it) => ({
+        title: it.Title || '', url: it.Url || '', author: it.AuthorName || '',
+        summary: it.ContentText || '', cid: String(it.ContentID || ''), isNew: !isFirstCheck && !before.has(String(it.ContentID || '')),
+      }))
+      writeTracks(list)
+    }
+    // Auto-brief: when new content appeared and the toggle is on, distill it
+    // via zhida and stash the brief on the track (one zhida call per check).
+    if (newCount > 0 && config().autoBrief) {
+      const fresh = cur?.lastItems.filter((it) => it.isNew) ?? []
+      if (fresh.length > 0) {
+        const brief = await briefForItems(track, fresh)
+        const again = readTracks().find((x) => x.id === id)
+        if (again) {
+          again.brief = brief
+          again.briefAt = Date.now()
+          writeTracks(readTracks())
+        }
+      }
+    }
+    return newCount
+  }
+
+  /** Ask zhida to distill a creative brief from freshly found items. */
+  async function briefForItems(track, items) {
+    const secret = config().secret
+    const subjects = items.slice(0, 5).map((it) => `- ${it.title}（${it.author || '匿名'}）\n  ${String(it.summary || '').slice(0, 200)}`).join('\n')
+    const prompt = `追踪主题「${track.query}」发现了这些新内容：\n${subjects}\n\n请生成一份"创意简报"：\n1. 新增内容概览（谁在聊什么）\n2. 其中有价值的想法/创意点\n3. 可以产品化/做成的应用方向\n简明扼要，用中文。`
+    try {
+      const payload = await fetchJson(`/zhihu-dashboard/api/analyze?q=${encodeURIComponent(prompt)}&model=thinking`, secret)
+      if (payload.ok !== true) return `（自动简报失败：${payload.error || '直答不可用'}）`
+      return payload.choices?.[0]?.message?.content || payload.content || payload.Answer || '（直答未返回内容）'
+    } catch (error) {
+      return `（自动简报失败：${error.message || error}）`
+    }
+  }
+
+  /** Expand a track to show its latest items (NEW highlighted) and any auto brief. */
+  function expandTrack(id, focusBrief = false) {
+    const tracks = readTracks()
+    const track = tracks.find((t) => t.id === id)
+    if (!track || !Array.isArray(track.lastItems)) return
+    const box = $('content')
+    const items = track.lastItems
+    box.innerHTML = `
+      <div class="card">
+        <div class="track-head">
+          <span class="query">${escapeHtml(track.query)}</span>
+          <button class="ghost" id="track-back">← 返回</button>
+        </div>
+        <div class="hint" style="margin-top:6px">点击标题打开原文；NEW = 上次检查后新出现的内容。</div>
+      </div>
+      <div id="track-brief"></div>
+      <div id="track-detail"></div>
+    `
+    const briefEl = $('track-brief')
+    if (track.brief) {
+      const briefCard = document.createElement('div')
+      briefCard.className = 'card'
+      const head = document.createElement('div')
+      head.className = 'title'
+      head.textContent = '📋 创意简报'
+      briefCard.appendChild(head)
+      if (track.briefAt) {
+        const meta = document.createElement('div')
+        meta.className = 'meta'
+        meta.textContent = `生成于 ${new Date(track.briefAt).toLocaleString('zh-CN', { hour12: false })}`
+        briefCard.appendChild(meta)
+      }
+      const body = document.createElement('div')
+      body.className = 'summary'
+      body.style.cssText = 'white-space:pre-wrap;color:var(--text);font-size:13px;line-height:1.7;-webkit-line-clamp:unset'
+      body.textContent = String(track.brief)
+      briefCard.appendChild(body)
+      briefEl.appendChild(briefCard)
+    }
+    const detail = $('track-detail')
+    if (items.length === 0) detail.innerHTML = '<div class="track-empty">最近一次检查没有搜到结果。</div>'
+    items.forEach((it) => {
+      const card = document.createElement('div')
+      card.className = 'card' + (it.isNew ? ' new-card' : '')
+      const title = document.createElement('div')
+      title.className = 'title'
+      const a = document.createElement('a')
+      a.href = it.url || '#'
+      a.target = '_blank'
+      a.rel = 'noreferrer'
+      a.textContent = it.title || '(无标题)'
+      title.appendChild(a)
+      if (it.isNew) title.appendChild(Object.assign(document.createElement('span'), { className: 'badge-new', textContent: 'NEW' }))
+      card.appendChild(title)
+      const meta = document.createElement('div')
+      meta.className = 'meta'
+      if (it.author) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `@ ${it.author}` }))
+      card.appendChild(meta)
+      if (it.summary) {
+        const summary = document.createElement('div')
+        summary.className = 'summary'
+        summary.textContent = it.summary.replace(/<[^>]*>/g, '').slice(0, 300)
+        card.appendChild(summary)
+      }
+      const actions = document.createElement('div')
+      actions.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:8px'
+      const distill = document.createElement('button')
+      distill.className = 'ghost'
+      distill.textContent = '提炼应用创意'
+      distill.addEventListener('click', () => distillIdea(it.title || it.url || track.query, it.url, card))
+      actions.appendChild(distill)
+      card.appendChild(actions)
+      detail.appendChild(card)
+    })
+    $('track-back').addEventListener('click', () => { markTrackSeen(id, {}); renderTrackShell() })
+  }
+
+  /** Ask zhida to distill app ideas from one tracked post; render under its card. */
+  async function distillIdea(subject, url, card) {
+    const secret = config().secret
+    const q = subject
+    const holder = document.createElement('div')
+    holder.className = 'summary'
+    holder.style.cssText = 'margin-top:8px;white-space:pre-wrap;color:var(--text);font-size:13px;line-height:1.7'
+    holder.textContent = '知乎直答正在检索并提炼应用创意…'
+    card.appendChild(holder)
+    $('status').textContent = '提炼中（约 10-30 秒）…'
+    let payload
+    try {
+      payload = await fetchJson(`/zhihu-dashboard/api/analyze?q=${encodeURIComponent(q)}`, secret)
+    } catch (error) {
+      holder.textContent = `分析失败：${error.message || error}`
+      $('status').textContent = '提炼失败'
+      return
+    }
+    if (payload.ok === false) {
+      holder.textContent = payload.error || '直答不可用（可能当日 100 次额度用完）'
+      $('status').textContent = '提炼失败'
+      return
+    }
+    const answer = payload.choices?.[0]?.message?.content || payload.content || payload.Answer || JSON.stringify(payload).slice(0, 500)
+    holder.innerHTML = ''
+    const head = document.createElement('div')
+    head.style.cssText = 'font-weight:600;color:var(--accent2);margin-bottom:6px'
+    head.textContent = '应用创意提炼'
+    holder.appendChild(head)
+    holder.appendChild(document.createTextNode(String(answer)))
+    $('status').textContent = '提炼完成'
+  }
+
+  function switchTab(next) {
+    tab = next
+    document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('active', el.dataset.tab === next))
+    if (timer) clearTimeout(timer)
+    load()
+  }
+
+  function openSettings() {
+    const cfg = config()
+    $('secret').value = cfg.secret
+    $('hotLimit').value = cfg.hotLimit
+    $('feedLimit').value = cfg.feedLimit
+    $('refreshSeconds').value = cfg.refreshSeconds
+    $('feedSource').value = cfg.feedSource
+    $('contentsSort').value = cfg.contentsSort
+    $('trackInterval').value = cfg.trackInterval
+    $('autoBrief').checked = cfg.autoBrief
+    $('settings').classList.add('open')
+  }
+
+  function saveSettings() {
+    lsSet(LS.secret, $('secret').value.trim())
+    lsSet(LS.hotLimit, String(Math.min(Math.max(Number($('hotLimit').value) || 10, 1), 30)))
+    lsSet(LS.feedLimit, String(Math.min(Math.max(Number($('feedLimit').value) || 10, 1), 50)))
+    lsSet(LS.refreshSeconds, String(Math.max(Number($('refreshSeconds').value) || 0, 0)))
+    lsSet(LS.feedSource, $('feedSource').value)
+    lsSet(LS.contentsSort, $('contentsSort').value === 'like_count' ? 'like_count' : 'ts')
+    lsSet(LS.trackInterval, String(Math.max(Number($('trackInterval').value) || 0, 0)))
+    lsSet(LS.autoBrief, $('autoBrief').checked ? '1' : '0')
+    $('settings').classList.remove('open')
+    restartTrackTimer()
+    load()
+  }
+
+  /** Schedule the auto track-check loop from the configured interval (minutes). */
+  function restartTrackTimer() {
+    if (trackTimer !== null) {
+      clearInterval(trackTimer)
+      trackTimer = null
+    }
+    const minutes = config().trackInterval
+    if (minutes > 0) {
+      trackTimer = setInterval(() => {
+        if (readTracks().length > 0) void checkTracks()
+      }, minutes * 60 * 1000)
+    }
+  }
+
+  document.querySelectorAll('.tab').forEach((el) => el.addEventListener('click', () => switchTab(el.dataset.tab)))
+  $('refresh').addEventListener('click', () => { if (timer) clearTimeout(timer); load() })
+  $('open-settings').addEventListener('click', openSettings)
+  $('close-settings').addEventListener('click', () => $('settings').classList.remove('open'))
+  $('save-settings').addEventListener('click', saveSettings)
+  $('verify-secret').addEventListener('click', async () => {
+    const value = $('secret').value.trim()
+    const result = $('verify-result')
+    if (!value) { result.style.color = 'var(--danger)'; result.textContent = '请先输入 Access Secret'; return }
+    result.style.color = 'var(--muted)'
+    result.textContent = '验证中…'
+    const payload = await fetchJson('/zhihu-dashboard/api/auth?verify=1', value).catch(() => null)
+    if (payload && payload.ok === true && payload.verification && payload.verification !== 'not_performed') {
+      result.style.color = 'var(--ok)'
+      result.textContent = '✓ 验证通过'
+    } else {
+      result.style.color = 'var(--danger)'
+      result.textContent = (payload && payload.error) ? String(payload.error) : '验证失败 —— 请检查 Secret'
+    }
+  })
+  $('settings').addEventListener('click', (e) => { if (e.target === $('settings')) $('settings').classList.remove('open') })
+
+  restartTrackTimer()
+  load()
+})()
+</script>
+</body>
+</html>

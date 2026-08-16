@@ -1,0 +1,16 @@
+# dsh-zhihu-dashboard bundle patch: one host row composing the dashboard.
+#
+# cliPath 留空 → 插件按优先级自动探测 zhihu-cli 二进制：
+#   1. 此处的 cliPath（如需指定）
+#   2. ZHIHU_CLI_HOME 环境变量
+#   3. PATH
+#   4. 平台默认安装位置（macOS ~/Library/Application Support/zhihu-cli，
+#      Linux $XDG_DATA_HOME/zhihu-cli）
+# 无需在此写死路径，跨平台安装（zhihu skill 的 setup.sh）都能被探测到。
+- insert:
+    - id: zhihu-dashboard
+      name: dsh-zhihu-dashboard
+      config:
+        hotLimit: 10
+        feedLimit: 10
+        refreshSeconds: 0
