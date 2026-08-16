@@ -41,11 +41,8 @@ function ZhihuFootButton({ wide }: { wide: boolean }) {
   }, [])
   const openPanel = () => {
     setOpen((v) => !v)
-    if (!open) {
-      // Opening the panel clears the badge.
-      try { localStorage.setItem(UNREAD_KEY, '0') } catch { /* private mode */ }
-      setUnread(0)
-    }
+    // Do NOT clear the unread badge here: the panel iframe reads it on load to
+    // jump to the new content; the panel clears it once the user views a track.
   }
   // Keep the overlay mounted while open; toggling re-renders it.
   return h('div', { style: { display: 'contents' } }, [

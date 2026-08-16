@@ -19,6 +19,18 @@ const KEYS = {
   trackNotify: 'zhihu.trackNotify',
   autoBrief: 'zhihu.autoBrief',
   unread: 'zhihu.unread',
+  unreadItems: 'zhihu.unreadItems',
+}
+
+/** One unread item surfaced in the panel's 未读 tab. */
+export interface UnreadItem {
+  trackQuery: string
+  title: string
+  url: string
+  author: string
+  summary: string
+  cid: string
+  foundAt: number
 }
 
 interface Track {
@@ -51,6 +63,39 @@ function readTracks(): Track[] {
 
 function writeTracks(list: Track[]): void {
   lsSet(KEYS.tracks, JSON.stringify(list))
+}
+
+/** Read the unread feed (newest first). */
+export function readUnreadItems(): UnreadItem[] {
+  try {
+    const raw = lsGet(KEYS.unreadItems)
+    const list = raw === null ? [] : JSON.parse(raw)
+    return Array.isArray(list) ? list : []
+  } catch { return [] }
+}
+
+/** Clear the unread feed and counter (after the user views the 未读 tab). */
+export function clearUnread(): void {
+  lsSet(KEYS.unreadItems, '[]')
+  lsSet(KEYS.unread, '0')
+}
+
+/** Queue new items into the unread feed, deduped by cid, capped at 100. */
+function appendUnreadItems(track: Track, fresh: Array<{ title: string; url: string; author: string; summary: string; cid: string }>): void {
+  const existing = readUnreadItems()
+  const seen = new Set(existing.map((i) => i.cid))
+  const now = Date.now()
+  for (const it of fresh) {
+    if (it.cid === '' || seen.has(it.cid)) continue
+    seen.add(it.cid)
+    existing.push({
+      trackQuery: track.query, title: it.title, url: it.url, author: it.author,
+      summary: it.summary, cid: it.cid, foundAt: now,
+    })
+  }
+  // Newest first, capped.
+  existing.sort((a, b) => b.foundAt - a.foundAt)
+  lsSet(KEYS.unreadItems, JSON.stringify(existing.slice(0, 100)))
 }
 
 /** One check round: search every tracked query, diff ContentIDs, persist. */
@@ -106,12 +151,17 @@ async function checkOne(track: Track, secret: string, autoBrief: boolean): Promi
     cur.seen = { ...(cur.seen ?? {}), ...seenNow }
     cur.checkedAt = Date.now()
     cur.lastNew = newCount
-    cur.lastItems = items.map((it) => ({
+    const lastItems = items.map((it) => ({
       title: it.Title ?? '', url: it.Url ?? '', author: it.AuthorName ?? '',
       summary: it.ContentText ?? '', cid: String(it.ContentID ?? ''),
       isNew: !isFirstCheck && !before.has(String(it.ContentID ?? '')),
     }))
+    cur.lastItems = lastItems
     writeTracks(list)
+    // Queue newly found items into the unread feed (panel's 未读 tab).
+    if (!isFirstCheck && newCount > 0) {
+      appendUnreadItems(track, lastItems.filter((it) => it.isNew))
+    }
   }
   // Auto-brief on new content (one zhida call).
   if (newCount > 0 && autoBrief && cur?.lastItems) {

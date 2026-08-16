@@ -30,7 +30,8 @@ window.__ModuleLoader__.load({
 			trackInterval: "zhihu.trackInterval",
 			trackNotify: "zhihu.trackNotify",
 			autoBrief: "zhihu.autoBrief",
-			unread: "zhihu.unread"
+			unread: "zhihu.unread",
+			unreadItems: "zhihu.unreadItems"
 		};
 		function lsGet(key) {
 			try {
@@ -55,6 +56,37 @@ window.__ModuleLoader__.load({
 		}
 		function writeTracks(list) {
 			lsSet(KEYS.tracks, JSON.stringify(list));
+		}
+		/** Read the unread feed (newest first). */
+		function readUnreadItems() {
+			try {
+				const raw = lsGet(KEYS.unreadItems);
+				const list = raw === null ? [] : JSON.parse(raw);
+				return Array.isArray(list) ? list : [];
+			} catch {
+				return [];
+			}
+		}
+		/** Queue new items into the unread feed, deduped by cid, capped at 100. */
+		function appendUnreadItems(track, fresh) {
+			const existing = readUnreadItems();
+			const seen = new Set(existing.map((i) => i.cid));
+			const now = Date.now();
+			for (const it of fresh) {
+				if (it.cid === "" || seen.has(it.cid)) continue;
+				seen.add(it.cid);
+				existing.push({
+					trackQuery: track.query,
+					title: it.title,
+					url: it.url,
+					author: it.author,
+					summary: it.summary,
+					cid: it.cid,
+					foundAt: now
+				});
+			}
+			existing.sort((a, b) => b.foundAt - a.foundAt);
+			lsSet(KEYS.unreadItems, JSON.stringify(existing.slice(0, 100)));
 		}
 		/** One check round: search every tracked query, diff ContentIDs, persist. */
 		async function checkAllTracks() {
@@ -125,7 +157,7 @@ window.__ModuleLoader__.load({
 				};
 				cur.checkedAt = Date.now();
 				cur.lastNew = newCount;
-				cur.lastItems = items.map((it) => ({
+				const lastItems = items.map((it) => ({
 					title: it.Title ?? "",
 					url: it.Url ?? "",
 					author: it.AuthorName ?? "",
@@ -133,7 +165,9 @@ window.__ModuleLoader__.load({
 					cid: String(it.ContentID ?? ""),
 					isNew: !isFirstCheck && !before.has(String(it.ContentID ?? ""))
 				}));
+				cur.lastItems = lastItems;
 				writeTracks(list);
+				if (!isFirstCheck && newCount > 0) appendUnreadItems(track, lastItems.filter((it) => it.isNew));
 			}
 			if (newCount > 0 && autoBrief && cur?.lastItems) {
 				const fresh = cur.lastItems.filter((it) => it.isNew).slice(0, 5);
@@ -221,12 +255,6 @@ window.__ModuleLoader__.load({
 			}, []);
 			const openPanel = () => {
 				setOpen((v) => !v);
-				if (!open) {
-					try {
-						localStorage.setItem(UNREAD_KEY, "0");
-					} catch {}
-					setUnread(0);
-				}
 			};
 			return (0, react.createElement)("div", { style: { display: "contents" } }, [(0, react.createElement)("button", {
 				key: "btn",
