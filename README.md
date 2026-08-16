@@ -13,6 +13,7 @@ Built on the official [zhihu-cli](https://developer.zhihu.com/zhihu-cli) (知乎
 - **热榜 (Hot list)** — today's trending questions/articles, with **trend arrows** (新上榜 / ↑ / ↓) computed by diffing successive snapshots
 - **关注动态 (Feed)** — your recent favorites, your own creations (sort by latest or **most-liked**), and the people you follow
 - **帖子追踪 (Post tracking)** — watch a **question** (all its answers), a **keyword** (similar new content), or a **person** (their new posts, author-filtered). New content is flagged `NEW`; optional **auto-brief** distills newly found posts into app-idea briefs via Zhihu Zhida; optional **system notifications + a sidebar unread badge** — the background checker runs in the DSH top window, so you get alerted **while using DSH, without opening the panel**
+- **未读 (Unread)** — an aggregated feed of everything newly found across your tracks (source track / author / time / summary); the sidebar badge jumps straight to it, with one-click mark-all-read
 - Access Secret and limits are configured in the panel's own Settings dialog (stored in browser `localStorage` only)
 
 ### Agent tools (conversation)
