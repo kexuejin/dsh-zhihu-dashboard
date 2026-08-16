@@ -17,6 +17,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the ui-sidebar SlotMap merge ('sidebar.footer.action').
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { NS } from './locales.ts'
+import { startTrackTimer } from './track-checker.ts'
 
 const PANEL_PATH = '/zhihu-dashboard'
 const UNREAD_KEY = 'zhihu.unread'
@@ -157,7 +158,9 @@ function ZhihuOverlay({ onClose }: { onClose: () => void }) {
 }
 
 /**
- * Register the sidebar foot button and the overlay it opens.
+ * Register the sidebar foot button and the overlay it opens, plus the
+ * background track checker (runs in the DSH top window, so reminders fire
+ * while the user is using DSH even with the panel drawer closed).
  * @param ctx - client root context with slots and locale available.
  */
 export function registerZhihuLauncher(ctx: Context): void {
@@ -167,4 +170,6 @@ export function registerZhihuLauncher(ctx: Context): void {
     id: 'zhihu-dashboard',
     order: 10,
   }, ZhihuFootButton))
+  // Background tracking reminders, independent of the panel iframe.
+  ctx.effect(() => startTrackTimer(), 'zhihu-dashboard: track checker')
 }

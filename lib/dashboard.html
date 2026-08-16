@@ -203,7 +203,6 @@
 
   let tab = 'hot'
   let timer = null
-  let trackTimer = null
 
   function lsGet(key, fallback) {
     try { const v = localStorage.getItem(key); return v === null ? fallback : v } catch { return fallback }
@@ -767,29 +766,13 @@
     }
     if (totalNew > 0) {
       $('status').textContent = `🔔 追踪发现 ${totalNew} 条新内容`
-      notifyNewContent(totalNew, newPerTrack)
+      // 只更新未读徽标；系统通知由 DSH 顶层窗口的后台检查器负责（避免重复弹）。
+      const prev = Number(localStorage.getItem('zhihu.unread') || '0')
+      try { localStorage.setItem('zhihu.unread', String(prev + totalNew)) } catch { /* private mode */ }
     } else {
       $('status').textContent = '检查完成，无新增'
     }
     renderTrackList()
-  }
-
-  /** Browser system notification for newly found tracked content. */
-  function notifyNewContent(total, perTrack) {
-    // 未读数持久化：侧边栏按钮（同源 iframe 外层）通过 storage 事件读取。
-    const prev = Number(localStorage.getItem('zhihu.unread') || '0')
-    try { localStorage.setItem('zhihu.unread', String(prev + total)) } catch { /* private mode */ }
-    if (!config().trackNotify) return
-    const lines = perTrack.slice(0, 3).map((t) => `${t.query}: ${t.count} 条`).join('\n')
-    const body = `${lines}${perTrack.length > 3 ? `\n…共 ${total} 条` : ''}`
-    try {
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('知乎追踪有新内容', { body, tag: 'zhihu-track' })
-      } else if ('Notification' in window && Notification.permission === 'default') {
-        // 首次需要权限：请求一次（由用户手势触发更好，这里为自动检查妥协）
-        void Notification.requestPermission()
-      }
-    } catch { /* notifications unavailable */ }
   }
 
   /**
@@ -1026,22 +1009,7 @@
     lsSet(LS.autoBrief, $('autoBrief').checked ? '1' : '0')
     lsSet(LS.trackNotify, $('trackNotify').checked ? '1' : '0')
     $('settings').classList.remove('open')
-    restartTrackTimer()
     load()
-  }
-
-  /** Schedule the auto track-check loop from the configured interval (minutes). */
-  function restartTrackTimer() {
-    if (trackTimer !== null) {
-      clearInterval(trackTimer)
-      trackTimer = null
-    }
-    const minutes = config().trackInterval
-    if (minutes > 0) {
-      trackTimer = setInterval(() => {
-        if (readTracks().length > 0) void checkTracks()
-      }, minutes * 60 * 1000)
-    }
   }
 
   document.querySelectorAll('.tab').forEach((el) => el.addEventListener('click', () => switchTab(el.dataset.tab)))
@@ -1066,7 +1034,6 @@
   })
   $('settings').addEventListener('click', (e) => { if (e.target === $('settings')) $('settings').classList.remove('open') })
 
-  restartTrackTimer()
   load()
 })()
 </script>

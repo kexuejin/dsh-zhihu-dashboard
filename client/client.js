@@ -10,6 +10,189 @@ window.__ModuleLoader__.load({
 		const zh = { "tab.label": "知乎" };
 		const en = { "tab.label": "Zhihu" };
 		//#endregion
+		//#region src/client/track-checker.ts
+		/**
+		* Background track checker running in the DSH top window (not the panel
+		* iframe), so tracking reminders work whenever the user is using DSH —
+		* regardless of whether the panel drawer is open.
+		*
+		* State lives in localStorage (shared same-origin with the panel iframe):
+		* - zhihu.tracks    : the track list with per-track `seen` ContentID sets
+		* - zhihu.secret    : Access Secret (sent as x-zhihu-secret header)
+		* - zhihu.trackInterval : minutes between checks (0 = off)
+		* - zhihu.trackNotify   : whether to fire system notifications
+		* - zhihu.autoBrief     : whether to auto-distill briefs (zhida)
+		* - zhihu.unread    : running unread counter for the sidebar badge
+		*/
+		const KEYS = {
+			tracks: "zhihu.tracks",
+			secret: "zhihu.secret",
+			trackInterval: "zhihu.trackInterval",
+			trackNotify: "zhihu.trackNotify",
+			autoBrief: "zhihu.autoBrief",
+			unread: "zhihu.unread"
+		};
+		function lsGet(key) {
+			try {
+				return localStorage.getItem(key);
+			} catch {
+				return null;
+			}
+		}
+		function lsSet(key, value) {
+			try {
+				localStorage.setItem(key, value);
+			} catch {}
+		}
+		function readTracks() {
+			try {
+				const raw = lsGet(KEYS.tracks);
+				const list = raw === null ? [] : JSON.parse(raw);
+				return Array.isArray(list) ? list : [];
+			} catch {
+				return [];
+			}
+		}
+		function writeTracks(list) {
+			lsSet(KEYS.tracks, JSON.stringify(list));
+		}
+		/** One check round: search every tracked query, diff ContentIDs, persist. */
+		async function checkAllTracks() {
+			const tracks = readTracks();
+			if (tracks.length === 0) return {
+				totalNew: 0,
+				perTrack: []
+			};
+			const secret = lsGet(KEYS.secret) ?? "";
+			if (!secret) return {
+				totalNew: 0,
+				perTrack: []
+			};
+			const autoBrief = lsGet(KEYS.autoBrief) === "1";
+			const perTrack = [];
+			let totalNew = 0;
+			for (const track of tracks) {
+				const newCount = await checkOne(track, secret, autoBrief);
+				if (newCount > 0) perTrack.push({
+					query: track.query,
+					count: newCount
+				});
+				totalNew += newCount;
+			}
+			return {
+				totalNew,
+				perTrack
+			};
+		}
+		async function checkOne(track, secret, autoBrief) {
+			const before = new Set(Object.keys(track.seen ?? {}));
+			const isFirstCheck = before.size === 0;
+			let payload;
+			try {
+				const headers = { "x-zhihu-secret": secret };
+				if (track.questionId && track.query) payload = await fetch(`/zhihu-dashboard/api/answers?q=${encodeURIComponent(track.questionId)}&title=${encodeURIComponent(track.query)}&count=10`, {
+					headers,
+					cache: "no-store"
+				}).then((r) => r.json());
+				else payload = await fetch(`/zhihu-dashboard/api/learn?q=${encodeURIComponent(track.query)}&count=10`, {
+					headers,
+					cache: "no-store"
+				}).then((r) => r.json());
+			} catch {
+				return 0;
+			}
+			if (payload?.ok !== true || !Array.isArray(payload.Data?.Items)) return 0;
+			let items = payload.Data.Items;
+			if (track.type === "person") {
+				const name = String(track.query ?? "").trim();
+				items = items.filter((it) => String(it.AuthorName ?? "").trim() === name);
+			}
+			const seenNow = {};
+			let newCount = 0;
+			for (const it of items) {
+				const cid = String(it.ContentID ?? "");
+				if (!cid) continue;
+				seenNow[cid] = true;
+				if (!before.has(cid)) newCount++;
+			}
+			if (isFirstCheck) newCount = 0;
+			const list = readTracks();
+			const cur = list.find((t) => t.id === track.id);
+			if (cur) {
+				cur.seen = {
+					...cur.seen ?? {},
+					...seenNow
+				};
+				cur.checkedAt = Date.now();
+				cur.lastNew = newCount;
+				cur.lastItems = items.map((it) => ({
+					title: it.Title ?? "",
+					url: it.Url ?? "",
+					author: it.AuthorName ?? "",
+					summary: it.ContentText ?? "",
+					cid: String(it.ContentID ?? ""),
+					isNew: !isFirstCheck && !before.has(String(it.ContentID ?? ""))
+				}));
+				writeTracks(list);
+			}
+			if (newCount > 0 && autoBrief && cur?.lastItems) {
+				const fresh = cur.lastItems.filter((it) => it.isNew).slice(0, 5);
+				if (fresh.length > 0) {
+					const brief = await distillBrief(track, fresh, secret);
+					const again = readTracks().find((t) => t.id === track.id);
+					if (again) {
+						again.brief = brief;
+						again.briefAt = Date.now();
+						writeTracks(readTracks());
+					}
+				}
+			}
+			return newCount;
+		}
+		async function distillBrief(track, items, secret) {
+			const subjects = items.map((it) => `- ${it.title}（${it.author || "匿名"}）\n  ${String(it.summary ?? "").slice(0, 200)}`).join("\n");
+			const prompt = `追踪主题「${track.query}」发现了这些新内容：\n${subjects}\n\n请生成一份"创意简报"：\n1. 新增内容概览（谁在聊什么）\n2. 其中有价值的想法/创意点\n3. 可以产品化/做成的应用方向\n简明扼要，用中文。`;
+			try {
+				const payload = await fetch(`/zhihu-dashboard/api/analyze?q=${encodeURIComponent(prompt)}&model=thinking`, {
+					headers: { "x-zhihu-secret": secret },
+					cache: "no-store"
+				}).then((r) => r.json());
+				if (payload?.ok !== true) return `（自动简报失败：${payload?.error ?? "直答不可用"}）`;
+				return payload?.choices?.[0]?.message?.content ?? payload?.content ?? payload?.Answer ?? "（直答未返回内容）";
+			} catch (error) {
+				return `（自动简报失败：${error?.message ?? error}）`;
+			}
+		}
+		/** Fire a system notification and bump the unread counter. */
+		function notifyNew(total, perTrack) {
+			const prev = Number(lsGet(KEYS.unread) ?? "0") || 0;
+			lsSet(KEYS.unread, String(prev + total));
+			if (lsGet(KEYS.trackNotify) !== "1") return;
+			const body = `${perTrack.slice(0, 3).map((t) => `${t.query}: ${t.count} 条`).join("\n")}${perTrack.length > 3 ? `\n…共 ${total} 条` : ""}`;
+			try {
+				if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification("知乎追踪有新内容", {
+					body,
+					tag: "zhihu-track"
+				});
+				else if (typeof Notification !== "undefined" && Notification.permission === "default") Notification.requestPermission();
+			} catch {}
+		}
+		/** Run one background check round; returns the new-count summary. */
+		async function runTrackCheck() {
+			const { totalNew, perTrack } = await checkAllTracks();
+			if (totalNew > 0) notifyNew(totalNew, perTrack);
+			return { totalNew };
+		}
+		/** Start (or restart) the interval timer from zhihu.trackInterval. */
+		function startTrackTimer() {
+			const minutes = Number(lsGet(KEYS.trackInterval) ?? "0") || 0;
+			if (minutes <= 0) return () => {};
+			const id = setInterval(() => {
+				runTrackCheck();
+			}, minutes * 60 * 1e3);
+			return () => clearInterval(id);
+		}
+		//#endregion
 		//#region src/client/ZhihuLauncher.tsx
 		/**
 		* Zhihu dashboard launcher: an official-sidebar foot button
@@ -172,7 +355,9 @@ window.__ModuleLoader__.load({
 			})]);
 		}
 		/**
-		* Register the sidebar foot button and the overlay it opens.
+		* Register the sidebar foot button and the overlay it opens, plus the
+		* background track checker (runs in the DSH top window, so reminders fire
+		* while the user is using DSH even with the panel drawer closed).
 		* @param ctx - client root context with slots and locale available.
 		*/
 		function registerZhihuLauncher(ctx) {
@@ -182,6 +367,7 @@ window.__ModuleLoader__.load({
 				id: "zhihu-dashboard",
 				order: 10
 			}, ZhihuFootButton));
+			ctx.effect(() => startTrackTimer(), "zhihu-dashboard: track checker");
 		}
 		//#endregion
 		//#region src/client/index.ts
