@@ -1,18 +1,18 @@
 /**
  * Zhihu dashboard launcher: an official-sidebar foot button
- * (sidebar.footer.action) that opens a full-screen shell.overlay embedding
- * the /zhihu-dashboard page. Global (root scope) — no better-sidebar or
- * conversation-view dependency; the panel is shared across sessions.
+ * (sidebar.footer.action) that opens a right-hand drawer registered as its
+ * own shell.overlay entry. The two slots are separate registrations —
+ * embedding the overlay inside the button component would render it inside
+ * the sidebar footer's DOM (zero-size). A tiny module store coordinates
+ * open/close between them.
  */
 import { createElement as h, useEffect, useState } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the slot registry's Context merge (ctx.slots).
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-// Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: pulls the ui-layout SlotMap merges ('sidebar', 'shell.overlay')
-// into the program.
+// Type-only: pulls the ui-layout SlotMap merges ('sidebar.footer.action',
+// 'shell.overlay') into the program.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the ui-sidebar SlotMap merge ('sidebar.footer.action').
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -22,92 +22,90 @@ import { startTrackTimer } from './track-checker.ts'
 const PANEL_PATH = '/zhihu-dashboard'
 const UNREAD_KEY = 'zhihu.unread'
 
+// ── tiny shared store: open state bridged between the two slot registrations ──
+let panelOpen = false
+const listeners = new Set<() => void>()
+function setPanelOpen(v: boolean): void {
+  panelOpen = v
+  for (const fn of listeners) fn()
+}
+function subscribePanelOpen(fn: () => void): () => void {
+  listeners.add(fn)
+  return () => listeners.delete(fn)
+}
+function usePanelOpen(): boolean {
+  const [open, setOpen] = useState(panelOpen)
+  useEffect(() => subscribePanelOpen(() => setOpen(panelOpen)), [])
+  return open
+}
+
 /** Foot button rendered in the official left sidebar (wide row or rail icon). */
 function ZhihuFootButton({ wide }: { wide: boolean }) {
-  const [open, setOpen] = useState(false)
-  // Unread badge: the dashboard iframe (same origin) writes zhihu.unread via
-  // localStorage; the storage event fires in every same-origin window/iframe.
+  const open = usePanelOpen()
   const [unread, setUnread] = useState<number>(() => {
     try { return Math.max(Number(localStorage.getItem(UNREAD_KEY) || '0'), 0) } catch { return 0 }
   })
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key === UNREAD_KEY) {
-        setUnread(Math.max(Number(e.newValue || '0'), 0))
-      }
+      if (e.key === UNREAD_KEY) setUnread(Math.max(Number(e.newValue || '0'), 0))
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
   }, [])
-  const openPanel = () => {
-    setOpen((v) => !v)
-    // Do NOT clear the unread badge here: the panel iframe reads it on load to
-    // jump to the new content; the panel clears it once the user views a track.
-  }
-  // Keep the overlay mounted while open; toggling re-renders it.
-  return h('div', { style: { display: 'contents' } }, [
-    h('button', {
-      key: 'btn',
-      type: 'button',
-      title: unread > 0 ? `知乎面板（${unread} 条新内容）` : '知乎面板',
-      'aria-label': '知乎面板',
-      'aria-expanded': open,
-      onClick: openPanel,
-      style: {
-        width: '100%',
-        height: 36,
-        border: 'none',
-        borderRadius: 8,
-        background: 'transparent',
-        color: 'var(--dsw-alias-label-secondary, #8b98a5)',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: wide ? 'flex-start' : 'center',
-        gap: 8,
-        padding: wide ? '0 12px' : 0,
-        fontSize: 13,
-      },
-    }, [
-      h('span', { key: 'icon', style: { fontSize: 15, lineHeight: 1 } }, '知'),
-      wide ? h('span', { key: 'label' }, '知乎面板') : null,
-      unread > 0
-        ? h('span', {
-            key: 'badge',
-            style: {
-              marginLeft: 'auto',
-              background: '#00ba7c',
-              color: '#06281c',
-              borderRadius: 999,
-              fontSize: 11,
-              fontWeight: 700,
-              padding: '1px 8px',
-            },
-          }, unread > 99 ? '99+' : String(unread))
-        : null,
-    ]),
-    // Overlay stays mounted (never unmounts) so the iframe keeps its loaded
-    // page and data — toggling only hides/shows it. This avoids a full reload
-    // (and re-fetch) every time the user opens the panel.
-    h(ZhihuOverlay, {
-      key: 'overlay',
-      open,
-      onClose: () => { setOpen(false); setUnread(0) },
-    }),
+  const toggle = () => setPanelOpen(!panelOpen)
+  return h('button', {
+    type: 'button',
+    title: unread > 0 ? `知乎面板（${unread} 条新内容）` : '知乎面板',
+    'aria-label': '知乎面板',
+    'aria-expanded': open,
+    onClick: toggle,
+    style: {
+      width: '100%',
+      height: 36,
+      border: 'none',
+      borderRadius: 8,
+      background: 'transparent',
+      color: 'var(--dsw-alias-label-secondary, #8b98a5)',
+      cursor: 'pointer',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: wide ? 'flex-start' : 'center',
+      gap: 8,
+      padding: wide ? '0 12px' : 0,
+      fontSize: 13,
+    },
+  }, [
+    h('span', { key: 'icon', style: { fontSize: 15, lineHeight: 1 } }, '知'),
+    wide ? h('span', { key: 'label' }, '知乎面板') : null,
+    unread > 0
+      ? h('span', {
+          key: 'badge',
+          style: {
+            marginLeft: 'auto',
+            background: '#00ba7c',
+            color: '#06281c',
+            borderRadius: 999,
+            fontSize: 11,
+            fontWeight: 700,
+            padding: '1px 8px',
+          },
+        }, unread > 99 ? '99+' : String(unread))
+      : null,
   ])
 }
 
-/** Right-side drawer overlay embedding the dashboard page. The shell's
- *  overlayLayer covers the viewport but passes events through, so the drawer
- *  sits on the right while the DSH UI stays visible and interactive behind it.
- *  Always mounted; `open` toggles visibility only (pointer-events + transform),
+/** Right-side drawer overlay registered as its own shell.overlay entry, so it
+ *  renders in the shell's overlay layer (full-viewport) rather than inside the
+ *  sidebar footer. Always mounted; `open` toggles visibility/transform only,
  *  so the iframe page survives open/close cycles. */
-function ZhihuOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
+function ZhihuOverlay() {
+  const open = usePanelOpen()
+  const onClose = () => setPanelOpen(false)
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && open) onClose() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && open) setPanelOpen(false) }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  }, [open])
   return h('div', {
     style: {
       position: 'absolute',
@@ -166,9 +164,8 @@ function ZhihuOverlay({ open, onClose }: { open: boolean; onClose: () => void })
 }
 
 /**
- * Register the sidebar foot button and the overlay it opens, plus the
- * background track checker (runs in the DSH top window, so reminders fire
- * while the user is using DSH even with the panel drawer closed).
+ * Register the sidebar foot button, the overlay drawer (separate shell.overlay
+ * entry), and the background track checker.
  * @param ctx - client root context with slots and locale available.
  */
 export function registerZhihuLauncher(ctx: Context): void {
@@ -178,6 +175,11 @@ export function registerZhihuLauncher(ctx: Context): void {
     id: 'zhihu-dashboard',
     order: 10,
   }, ZhihuFootButton))
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'zhihu-dashboard-drawer',
+    order: 10,
+  }, ZhihuOverlay))
   // Background tracking reminders, independent of the panel iframe.
   ctx.effect(() => startTrackTimer(), 'zhihu-dashboard: track checker')
 }

@@ -235,15 +235,32 @@ window.__ModuleLoader__.load({
 		//#region src/client/ZhihuLauncher.tsx
 		/**
 		* Zhihu dashboard launcher: an official-sidebar foot button
-		* (sidebar.footer.action) that opens a full-screen shell.overlay embedding
-		* the /zhihu-dashboard page. Global (root scope) — no better-sidebar or
-		* conversation-view dependency; the panel is shared across sessions.
+		* (sidebar.footer.action) that opens a right-hand drawer registered as its
+		* own shell.overlay entry. The two slots are separate registrations —
+		* embedding the overlay inside the button component would render it inside
+		* the sidebar footer's DOM (zero-size). A tiny module store coordinates
+		* open/close between them.
 		*/
 		const PANEL_PATH = "/zhihu-dashboard";
 		const UNREAD_KEY = "zhihu.unread";
+		let panelOpen = false;
+		const listeners = /* @__PURE__ */ new Set();
+		function setPanelOpen(v) {
+			panelOpen = v;
+			for (const fn of listeners) fn();
+		}
+		function subscribePanelOpen(fn) {
+			listeners.add(fn);
+			return () => listeners.delete(fn);
+		}
+		function usePanelOpen() {
+			const [open, setOpen] = (0, react.useState)(panelOpen);
+			(0, react.useEffect)(() => subscribePanelOpen(() => setOpen(panelOpen)), []);
+			return open;
+		}
 		/** Foot button rendered in the official left sidebar (wide row or rail icon). */
 		function ZhihuFootButton({ wide }) {
-			const [open, setOpen] = (0, react.useState)(false);
+			const open = usePanelOpen();
 			const [unread, setUnread] = (0, react.useState)(() => {
 				try {
 					return Math.max(Number(localStorage.getItem(UNREAD_KEY) || "0"), 0);
@@ -258,16 +275,13 @@ window.__ModuleLoader__.load({
 				window.addEventListener("storage", onStorage);
 				return () => window.removeEventListener("storage", onStorage);
 			}, []);
-			const openPanel = () => {
-				setOpen((v) => !v);
-			};
-			return (0, react.createElement)("div", { style: { display: "contents" } }, [(0, react.createElement)("button", {
-				key: "btn",
+			const toggle = () => setPanelOpen(!panelOpen);
+			return (0, react.createElement)("button", {
 				type: "button",
 				title: unread > 0 ? `知乎面板（${unread} 条新内容）` : "知乎面板",
 				"aria-label": "知乎面板",
 				"aria-expanded": open,
-				onClick: openPanel,
+				onClick: toggle,
 				style: {
 					width: "100%",
 					height: 36,
@@ -304,28 +318,22 @@ window.__ModuleLoader__.load({
 						padding: "1px 8px"
 					}
 				}, unread > 99 ? "99+" : String(unread)) : null
-			]), (0, react.createElement)(ZhihuOverlay, {
-				key: "overlay",
-				open,
-				onClose: () => {
-					setOpen(false);
-					setUnread(0);
-				}
-			})]);
+			]);
 		}
-		/** Right-side drawer overlay embedding the dashboard page. The shell's
-		*  overlayLayer covers the viewport but passes events through, so the drawer
-		*  sits on the right while the DSH UI stays visible and interactive behind it.
-		*  Always mounted; `open` toggles visibility only (pointer-events + transform),
+		/** Right-side drawer overlay registered as its own shell.overlay entry, so it
+		*  renders in the shell's overlay layer (full-viewport) rather than inside the
+		*  sidebar footer. Always mounted; `open` toggles visibility/transform only,
 		*  so the iframe page survives open/close cycles. */
-		function ZhihuOverlay({ open, onClose }) {
+		function ZhihuOverlay() {
+			const open = usePanelOpen();
+			const onClose = () => setPanelOpen(false);
 			(0, react.useEffect)(() => {
 				const onKey = (e) => {
-					if (e.key === "Escape" && open) onClose();
+					if (e.key === "Escape" && open) setPanelOpen(false);
 				};
 				window.addEventListener("keydown", onKey);
 				return () => window.removeEventListener("keydown", onKey);
-			}, [open, onClose]);
+			}, [open]);
 			return (0, react.createElement)("div", { style: {
 				position: "absolute",
 				top: 0,
@@ -395,9 +403,8 @@ window.__ModuleLoader__.load({
 			})]);
 		}
 		/**
-		* Register the sidebar foot button and the overlay it opens, plus the
-		* background track checker (runs in the DSH top window, so reminders fire
-		* while the user is using DSH even with the panel drawer closed).
+		* Register the sidebar foot button, the overlay drawer (separate shell.overlay
+		* entry), and the background track checker.
 		* @param ctx - client root context with slots and locale available.
 		*/
 		function registerZhihuLauncher(ctx) {
@@ -407,6 +414,11 @@ window.__ModuleLoader__.load({
 				id: "zhihu-dashboard",
 				order: 10
 			}, ZhihuFootButton));
+			ctx.slots.inject("shell.overlay", () => ctx.slots.register({
+				name: "shell.overlay",
+				id: "zhihu-dashboard-drawer",
+				order: 10
+			}, ZhihuOverlay));
 			ctx.effect(() => startTrackTimer(), "zhihu-dashboard: track checker");
 		}
 		//#endregion
