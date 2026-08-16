@@ -228,12 +228,48 @@
     }
   }
 
+  const CACHE_TTL = 5 * 60 * 1000 // 5 分钟缓存
+  const CACHE_PREFIX = 'zhihu.cache.'
+
+  /** localStorage 读缓存（带 TTL）。 */
+  function cacheGet(key) {
+    try {
+      const raw = localStorage.getItem(CACHE_PREFIX + key)
+      if (raw === null) return null
+      const d = JSON.parse(raw)
+      if (Date.now() - d.at > CACHE_TTL) return null
+      return d.data
+    } catch { return null }
+  }
+  function cacheSet(key, data) {
+    try { localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ at: Date.now(), data })) } catch { /* private mode */ }
+  }
+
+  /**
+   * GET JSON with a localStorage cache layer: read-then-refresh. A cached copy
+   * is returned immediately and the network copy replaces it in the background,
+   * so reopening the panel (or a quick refresh) shows data instantly instead of
+   * a spinner. POST/verify calls bypass the cache.
+   */
   async function fetchJson(url, secret) {
     const headers = {}
     if (secret) headers['x-zhihu-secret'] = secret
+    const isGet = !/auth\?verify|analyze|question-title/.test(url)
+    if (isGet) {
+      const cached = cacheGet(url)
+      if (cached !== null) {
+        // 后台刷新：不阻塞展示，成功后更新缓存。
+        fetch(url, { headers, cache: 'no-store' })
+          .then((r) => r.json())
+          .then((fresh) => { if (fresh && fresh.ok === true) cacheSet(url, fresh) })
+          .catch(() => {})
+        return cached
+      }
+    }
     const res = await fetch(url, { headers, cache: 'no-store' })
     const body = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status} 非 JSON 响应` }))
     if (!res.ok && body.ok === undefined) body.ok = false
+    if (isGet && body.ok === true) cacheSet(url, body)
     return body
   }
 

@@ -175,8 +175,13 @@ window.__ModuleLoader__.load({
 					const brief = await distillBrief(track, fresh, secret);
 					const again = readTracks().find((t) => t.id === track.id);
 					if (again) {
+						const now = Date.now();
 						again.brief = brief;
-						again.briefAt = Date.now();
+						again.briefAt = now;
+						again.briefs = [...again.briefs ?? [], {
+							text: brief,
+							at: now
+						}].slice(-10);
 						writeTracks(readTracks());
 					}
 				}
@@ -299,25 +304,28 @@ window.__ModuleLoader__.load({
 						padding: "1px 8px"
 					}
 				}, unread > 99 ? "99+" : String(unread)) : null
-			]), open ? (0, react.createElement)(ZhihuOverlay, {
+			]), (0, react.createElement)(ZhihuOverlay, {
 				key: "overlay",
+				open,
 				onClose: () => {
 					setOpen(false);
 					setUnread(0);
 				}
-			}) : null]);
+			})]);
 		}
 		/** Right-side drawer overlay embedding the dashboard page. The shell's
 		*  overlayLayer covers the viewport but passes events through, so the drawer
-		*  sits on the right while the DSH UI stays visible and interactive behind it. */
-		function ZhihuOverlay({ onClose }) {
+		*  sits on the right while the DSH UI stays visible and interactive behind it.
+		*  Always mounted; `open` toggles visibility only (pointer-events + transform),
+		*  so the iframe page survives open/close cycles. */
+		function ZhihuOverlay({ open, onClose }) {
 			(0, react.useEffect)(() => {
 				const onKey = (e) => {
-					if (e.key === "Escape") onClose();
+					if (e.key === "Escape" && open) onClose();
 				};
 				window.addEventListener("keydown", onKey);
 				return () => window.removeEventListener("keydown", onKey);
-			}, [onClose]);
+			}, [open, onClose]);
 			return (0, react.createElement)("div", { style: {
 				position: "absolute",
 				top: 0,
@@ -329,7 +337,11 @@ window.__ModuleLoader__.load({
 				boxShadow: "-12px 0 32px rgba(0,0,0,.35)",
 				display: "flex",
 				flexDirection: "column",
-				zIndex: 21
+				zIndex: 21,
+				visibility: open ? "visible" : "hidden",
+				transform: open ? "translateX(0)" : "translateX(100%)",
+				transition: "transform .18s ease, visibility .18s",
+				pointerEvents: open ? "auto" : "none"
 			} }, [(0, react.createElement)("div", {
 				key: "bar",
 				style: {

@@ -86,21 +86,28 @@ function ZhihuFootButton({ wide }: { wide: boolean }) {
           }, unread > 99 ? '99+' : String(unread))
         : null,
     ]),
-    open
-      ? h(ZhihuOverlay, { key: 'overlay', onClose: () => { setOpen(false); setUnread(0) } })
-      : null,
+    // Overlay stays mounted (never unmounts) so the iframe keeps its loaded
+    // page and data — toggling only hides/shows it. This avoids a full reload
+    // (and re-fetch) every time the user opens the panel.
+    h(ZhihuOverlay, {
+      key: 'overlay',
+      open,
+      onClose: () => { setOpen(false); setUnread(0) },
+    }),
   ])
 }
 
 /** Right-side drawer overlay embedding the dashboard page. The shell's
  *  overlayLayer covers the viewport but passes events through, so the drawer
- *  sits on the right while the DSH UI stays visible and interactive behind it. */
-function ZhihuOverlay({ onClose }: { onClose: () => void }) {
+ *  sits on the right while the DSH UI stays visible and interactive behind it.
+ *  Always mounted; `open` toggles visibility only (pointer-events + transform),
+ *  so the iframe page survives open/close cycles. */
+function ZhihuOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && open) onClose() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [open, onClose])
   return h('div', {
     style: {
       position: 'absolute',
@@ -114,6 +121,10 @@ function ZhihuOverlay({ onClose }: { onClose: () => void }) {
       display: 'flex',
       flexDirection: 'column',
       zIndex: 21,
+      visibility: open ? 'visible' : 'hidden',
+      transform: open ? 'translateX(0)' : 'translateX(100%)',
+      transition: 'transform .18s ease, visibility .18s',
+      pointerEvents: open ? 'auto' : 'none',
     },
   }, [
     h('div', {
