@@ -141,6 +141,7 @@
     <button class="tab" data-tab="feed" id="tab-feed">关注动态</button>
     <button class="tab" data-tab="favs" id="tab-favs">收藏夹</button>
     <button class="tab" data-tab="unread" id="tab-unread">未读</button>
+    <button class="tab" data-tab="opportunities" id="tab-opportunities">机会报告</button>
     <button class="tab" data-tab="workspace" id="tab-workspace">工作台</button>
     <button class="tab" data-tab="track" id="tab-track">帖子追踪</button>
   </nav>
@@ -419,6 +420,216 @@
       '',
       markdownForExport({ title, items }),
     ].join('\n')
+  }
+
+  function opportunitySpecPromptFor(item) {
+    const normalized = normalizeExportItem(item)
+    return [
+      `请把这个知乎线索转成一个可本地开发的小项目/spec 草案：${normalized.title}`,
+      '',
+      '请输出：',
+      '1. 用户痛点与目标用户。',
+      '2. 最小可行产品范围。',
+      '3. 本地实现方式（优先 DSH 插件、脚本、KMP/桌面工具或已有本地项目可吸收的模块）。',
+      '4. 风险、不可做范围和验证办法。',
+      '',
+      markdownForExport({ title: `机会线索：${normalized.title}`, items: [normalized] }),
+    ].join('\n')
+  }
+
+  function opportunityReportPromptFor(items) {
+    return [
+      '请作为本地产品/开发机会分析助手，基于下面的知乎机会候选，发现值得后续本地开发的新方向。',
+      '',
+      '请输出：',
+      '1. 今日最值得关注的 3-5 个方向。',
+      '2. 每个方向的证据内容和为什么值得做。',
+      '3. 可以做成什么本地工具、DSH 插件、KMP/桌面应用或现有项目功能。',
+      '4. 风险、反方观点和噪音判断。',
+      '5. 下一步开发/调研行动清单。',
+      '',
+      markdownForExport({ title: '知乎机会候选研究包', items }),
+    ].join('\n')
+  }
+
+  function numericLikes(value) {
+    const text = String(value || '').replace(/,/g, '')
+    const n = Number(text)
+    return Number.isFinite(n) ? n : 0
+  }
+
+  function scoreOpportunity(item, cfg = config()) {
+    let score = 0
+    const reasons = []
+    const text = [item.title, item.summary, item.author, item.source].filter(Boolean).join('\n').toLowerCase()
+    if (item.status === 'analysis') { score += 3; reasons.push('待分析') }
+    if (item.status === 'later') { score += 1; reasons.push('稍后读') }
+    if (/追踪|未读/.test(item.source || '')) { score += 2; reasons.push('来自追踪/未读') }
+    if (/NEW|新收藏|新上榜/.test(item.source || '') || item.isNew) { score += 2; reasons.push('新内容') }
+    cfg.preferKeywords.forEach((kw) => {
+      if (kw && text.includes(kw.toLowerCase())) { score += 3; reasons.push(`偏好：${kw}`) }
+    })
+    const likes = numericLikes(item.likes)
+    if (likes >= 1000) { score += 2; reasons.push('高热度') }
+    else if (likes >= 100) { score += 1; reasons.push('较高热度') }
+    if (/研究项目/.test(item.source || '')) { score += 1; reasons.push('已沉淀项目') }
+    return { score, reasons }
+  }
+
+  function cachedDiscoveryItems() {
+    const items = []
+    try {
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i)
+        if (!key || !key.startsWith(CACHE_PREFIX)) continue
+        const url = key.slice(CACHE_PREFIX.length)
+        if (!/\/api\/(hot|feed)/.test(url)) continue
+        const raw = JSON.parse(localStorage.getItem(key) || '{}')
+        const data = raw && raw.data
+        const source = url.includes('/api/hot') ? '热榜缓存' : '关注动态缓存'
+        normalize(data).forEach((it) => items.push(Object.assign({ source }, it)))
+      }
+    } catch { /* local discovery cache is best-effort */ }
+    return items
+  }
+
+  function buildOpportunityCandidates() {
+    const raw = []
+    cachedDiscoveryItems().forEach((it) => raw.push(it))
+    readUnreadItems().forEach((it) => raw.push(Object.assign({ source: it.trackQuery ? `未读追踪：${it.trackQuery}` : '未读追踪', isNew: true }, it)))
+    readTracks().forEach((track) => {
+      ;(Array.isArray(track.lastItems) ? track.lastItems : []).forEach((it) => raw.push(Object.assign({ source: `追踪：${track.query}`, isNew: Boolean(it.isNew) }, it)))
+    })
+    readWorkspaceItems().forEach((it) => raw.push(Object.assign({ source: it.source || '工作台', status: it.status }, it)))
+    readResearchProjects().forEach((project) => {
+      ;(Array.isArray(project.items) ? project.items : []).forEach((it) => raw.push(Object.assign({ source: `研究项目：${project.name}` }, it)))
+    })
+    const normalized = raw.map((it) => Object.assign(normalizeExportItem(it), { status: it.status || '', isNew: Boolean(it.isNew) }))
+    const filtered = applyContentFilter(normalized)
+    const best = new Map()
+    filtered.kept.forEach((item) => {
+      const id = workspaceIdFor(item)
+      const scoring = scoreOpportunity(item)
+      const candidate = Object.assign({}, item, { opportunityScore: scoring.score, opportunityReasons: scoring.reasons })
+      const prev = best.get(id)
+      if (!prev || candidate.opportunityScore > prev.opportunityScore) best.set(id, candidate)
+    })
+    return [...best.values()].sort((a, b) => b.opportunityScore - a.opportunityScore || String(b.time || '').localeCompare(String(a.time || ''))).slice(0, 50)
+  }
+
+  function opportunityPriority(score) {
+    return score >= 7 ? '高' : score >= 4 ? '中' : '低'
+  }
+
+  async function runDshOpportunityAnalysis(items, output) {
+    const prompt = opportunityReportPromptFor(items)
+    output.textContent = '正在使用当前 DSH provider/model 生成机会报告…'
+    $('status').textContent = '机会分析中…'
+    const payload = await postJson('/zhihu-dashboard/api/dsh-analyze', { prompt })
+    if (payload.ok !== true) {
+      output.textContent = `DSH 模型分析不可用：${payload.error || '未知错误'}\n\n已保留“复制 Agent 报告提示”作为兜底。`
+      $('status').textContent = 'DSH 分析不可用'
+      return
+    }
+    output.innerHTML = ''
+    const meta = document.createElement('div')
+    meta.className = 'meta'
+    meta.textContent = `模型：${payload.provider}/${payload.model}`
+    output.appendChild(meta)
+    const body = document.createElement('div')
+    body.className = 'reader-body'
+    body.textContent = payload.content || ''
+    output.appendChild(body)
+    $('status').textContent = '机会报告已生成'
+  }
+
+  function renderOpportunities() {
+    const box = $('content')
+    const items = buildOpportunityCandidates()
+    setExportState('知乎机会候选研究包', items)
+    $('status').textContent = `机会候选 ${items.length} 条`
+    box.innerHTML = ''
+    const intro = document.createElement('div')
+    intro.className = 'card'
+    intro.innerHTML = '<div class="title">机会报告</div><div class="summary" style="-webkit-line-clamp:unset">从热榜/动态缓存、追踪新增、未读、工作台和研究项目里聚合线索，用本地规则打分；可直接调用当前 DSH provider/model 生成开发机会报告，或复制 prompt 给 Agent。</div>'
+    const actions = document.createElement('div')
+    actions.className = 'filter-actions'
+    const analyzeBtn = document.createElement('button')
+    analyzeBtn.className = 'ghost'
+    analyzeBtn.textContent = '使用 DSH 模型生成报告'
+    analyzeBtn.disabled = items.length === 0
+    const copyBtn = document.createElement('button')
+    copyBtn.className = 'ghost'
+    copyBtn.textContent = '复制 Agent 报告提示'
+    copyBtn.disabled = items.length === 0
+    copyBtn.addEventListener('click', () => copyText(opportunityReportPromptFor(items), 'Agent 报告提示'))
+    actions.appendChild(analyzeBtn)
+    actions.appendChild(copyBtn)
+    intro.appendChild(actions)
+    const output = document.createElement('div')
+    output.className = 'card'
+    output.style.display = 'none'
+    analyzeBtn.addEventListener('click', () => { output.style.display = ''; runDshOpportunityAnalysis(items, output) })
+    box.appendChild(intro)
+    box.appendChild(output)
+    if (items.length === 0) {
+      box.appendChild(Object.assign(document.createElement('div'), { className: 'empty', textContent: '暂无机会候选。先刷新热榜/关注动态、添加追踪项，或把内容加入工作台。' }))
+      $('updated').textContent = '机会报告依赖本地缓存与工作台数据'
+      return
+    }
+    const top = items.slice(0, 20)
+    top.forEach((it, idx) => {
+      const card = document.createElement('div')
+      card.className = 'card'
+      const title = document.createElement('div')
+      title.className = 'title'
+      title.textContent = `${idx + 1}. ${it.title || '(无标题)'}`
+      card.appendChild(title)
+      const meta = document.createElement('div')
+      meta.className = 'meta'
+      meta.appendChild(Object.assign(document.createElement('span'), { textContent: `机会分 ${it.opportunityScore}` }))
+      meta.appendChild(Object.assign(document.createElement('span'), { textContent: `优先级 ${opportunityPriority(it.opportunityScore)}` }))
+      if (it.source) meta.appendChild(Object.assign(document.createElement('span'), { textContent: it.source }))
+      if (it.author) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `@ ${it.author}` }))
+      card.appendChild(meta)
+      if (it.opportunityReasons?.length) {
+        const reasons = document.createElement('div')
+        reasons.className = 'hint'
+        reasons.textContent = `理由：${it.opportunityReasons.join(' / ')}`
+        card.appendChild(reasons)
+      }
+      if (it.summary) {
+        const summary = document.createElement('div')
+        summary.className = 'summary'
+        summary.textContent = it.summary.slice(0, 300)
+        card.appendChild(summary)
+      }
+      const cardActions = document.createElement('div')
+      cardActions.className = 'filter-actions'
+      const read = document.createElement('button')
+      read.className = 'ghost'
+      read.textContent = '阅读'
+      read.addEventListener('click', () => renderReadingView(it, renderOpportunities))
+      cardActions.appendChild(read)
+      const analysis = document.createElement('button')
+      analysis.className = 'ghost'
+      analysis.textContent = '加入待分析'
+      analysis.addEventListener('click', () => addWorkspaceItem(it, 'analysis'))
+      cardActions.appendChild(analysis)
+      const project = document.createElement('button')
+      project.className = 'ghost'
+      project.textContent = '加入项目'
+      project.addEventListener('click', () => addItemToProject(it))
+      cardActions.appendChild(project)
+      const spec = document.createElement('button')
+      spec.className = 'ghost'
+      spec.textContent = '复制 spec prompt'
+      spec.addEventListener('click', () => copyText(opportunitySpecPromptFor(it), 'spec prompt'))
+      cardActions.appendChild(spec)
+      card.appendChild(cardActions)
+      box.appendChild(card)
+    })
+    $('updated').textContent = `机会候选 ${top.length}/${items.length} 条 · ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`
   }
 
   function addResearchProject(name) {
@@ -746,6 +957,18 @@
     return body
   }
 
+  async function postJson(url, body) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify(body || {}),
+    })
+    const payload = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status} 非 JSON 响应` }))
+    if (!res.ok && payload.ok === undefined) payload.ok = false
+    return payload
+  }
+
   function showBanner(message, actionUrl) {
     const banner = $('banner')
     banner.style.display = 'flex'
@@ -878,6 +1101,7 @@
       : name === 'favs' ? '收藏夹'
       : name === 'unread' ? '未读'
       : name === 'workspace' ? '工作台'
+      : name === 'opportunities' ? '机会报告'
       : '帖子追踪'
   }
 
@@ -907,6 +1131,10 @@
     const secret = cfg.secret
     if (tab === 'workspace') {
       renderWorkspace()
+      return
+    }
+    if (tab === 'opportunities') {
+      renderOpportunities()
       return
     }
     void refreshQuota()
