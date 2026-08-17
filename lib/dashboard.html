@@ -110,6 +110,7 @@
   .tag { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
   .filter-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
   .filter-actions button { font-size: 11px; padding: 4px 8px; }
+  .filter-actions button.active { border-color: var(--accent); color: var(--accent2); }
   .fav-card { margin-bottom: 14px; }
   .fav-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .fav-head .title { flex: 1; }
@@ -137,6 +138,10 @@
   .new-card { border-color: var(--ok); }
   .new-card .title a { color: var(--ok); }
   .reader-body { white-space: pre-wrap; color: var(--text); font-size: 14px; line-height: 1.85; -webkit-line-clamp: unset; display: block; }
+  .opportunity-steps { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:8px; margin-top:10px; }
+  .opportunity-step { border:1px solid var(--border); border-radius:10px; padding:8px 10px; background:var(--card); }
+  .opportunity-step b { display:block; color:var(--accent2); font-size:12px; margin-bottom:2px; }
+  @media (max-width: 640px) { .opportunity-steps { grid-template-columns: 1fr; } .panel .row { flex-direction: column; } }
 </style>
 </head>
 <body>
@@ -338,7 +343,7 @@
 (() => {
   'use strict'
   const $ = (id) => document.getElementById(id)
-  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', workspaceItems: 'zhihu.workspaceItems', researchProjects: 'zhihu.researchProjects', browserProfile: 'zhihu.browserProfile', browserSessionItems: 'zhihu.browserSessionItems', trackInterval: 'zhihu.trackInterval', trackLimit: 'zhihu.trackLimit', trackSinceHours: 'zhihu.trackSinceHours', trackContentType: 'zhihu.trackContentType', trackHistory: 'zhihu.trackHistory', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', localSortMode: 'zhihu.localSortMode', preferKeywords: 'zhihu.preferKeywords', favSearch: 'zhihu.favSearch', favSort: 'zhihu.favSort', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
+  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', workspaceItems: 'zhihu.workspaceItems', researchProjects: 'zhihu.researchProjects', browserProfile: 'zhihu.browserProfile', browserSessionItems: 'zhihu.browserSessionItems', browserSessionAt: 'zhihu.browserSessionAt', trackInterval: 'zhihu.trackInterval', trackLimit: 'zhihu.trackLimit', trackSinceHours: 'zhihu.trackSinceHours', trackContentType: 'zhihu.trackContentType', trackHistory: 'zhihu.trackHistory', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', localSortMode: 'zhihu.localSortMode', preferKeywords: 'zhihu.preferKeywords', favSearch: 'zhihu.favSearch', favSort: 'zhihu.favSort', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
 
   let tab = 'hot'
   let timer = null
@@ -349,6 +354,7 @@
   /** 后台刷新标记：静默更新，不闪状态栏。 */
   let isBackgroundRefresh = false
   let exportState = { title: '知乎面板', items: [] }
+  let opportunityFilter = 'all'
 
   function lsGet(key, fallback) {
     try { const v = localStorage.getItem(key); return v === null ? fallback : v } catch { return fallback }
@@ -458,6 +464,7 @@
 
   function writeBrowserSessionItems(items) {
     lsSet(LS.browserSessionItems, JSON.stringify((Array.isArray(items) ? items : []).slice(0, 100)))
+    lsSet(LS.browserSessionAt, String(Date.now()))
   }
 
   async function detectBrowserProfiles(select, statusEl) {
@@ -608,6 +615,24 @@
     return score >= 7 ? '高' : score >= 4 ? '中' : '低'
   }
 
+  function filterOpportunityCandidates(items, mode = opportunityFilter) {
+    if (mode === 'high') return items.filter((it) => it.opportunityScore >= 7)
+    if (mode === 'new') return items.filter((it) => /NEW|新/.test(it.source || '') || it.isNew || (it.opportunityReasons || []).includes('新内容'))
+    if (mode === 'track') return items.filter((it) => /追踪|未读/.test(it.source || ''))
+    if (mode === 'browser') return items.filter((it) => /浏览器会话/.test(it.source || ''))
+    if (mode === 'workspace') return items.filter((it) => /工作台|研究项目/.test(it.source || '') || it.status)
+    return items
+  }
+
+  function opportunitySourceSummary() {
+    const browserItems = readBrowserSessionItems()
+    const browserAt = Number(lsGet(LS.browserSessionAt, '0')) || 0
+    const cached = cachedDiscoveryItems()
+    const trackItems = readTracks().reduce((sum, track) => sum + (Array.isArray(track.lastItems) ? track.lastItems.length : 0), 0)
+    const localItems = readWorkspaceItems().length + readResearchProjects().reduce((sum, project) => sum + (Array.isArray(project.items) ? project.items.length : 0), 0)
+    return { browserItems, browserAt, cached, trackItems, localItems }
+  }
+
   async function runDshOpportunityAnalysis(items, output) {
     const prompt = opportunityReportPromptFor(items)
     output.textContent = '正在使用当前 DSH provider/model 生成机会报告…'
@@ -632,13 +657,21 @@
 
   function renderOpportunities() {
     const box = $('content')
-    const items = buildOpportunityCandidates()
+    const allItems = buildOpportunityCandidates()
+    const items = filterOpportunityCandidates(allItems)
+    const summary = opportunitySourceSummary()
     setExportState('知乎机会候选研究包', items)
-    $('status').textContent = `机会候选 ${items.length} 条`
+    $('status').textContent = `机会候选 ${items.length}/${allItems.length} 条`
     box.innerHTML = ''
     const intro = document.createElement('div')
     intro.className = 'card'
-    intro.innerHTML = '<div class="title">机会报告</div><div class="summary" style="-webkit-line-clamp:unset">从浏览器会话、热榜/动态缓存、追踪新增、未读、工作台和研究项目里聚合线索，用本地规则打分；可直接调用当前 DSH provider/model 生成开发机会报告，或复制 prompt 给 Agent。</div>'
+    const browserTime = summary.browserAt ? new Date(summary.browserAt).toLocaleString('zh-CN', { hour12: false }) : '未读取'
+    intro.innerHTML = `<div class="title">机会报告</div>
+      <div class="opportunity-steps">
+        <div class="opportunity-step"><b>1. 数据源</b><span class="hint">浏览器 ${summary.browserItems.length} · 缓存 ${summary.cached.length} · 追踪 ${summary.trackItems} · 本地 ${summary.localItems}</span></div>
+        <div class="opportunity-step"><b>2. 候选机会</b><span class="hint">按机会分排序，当前筛选 ${items.length}/${allItems.length}</span></div>
+        <div class="opportunity-step"><b>3. 生成报告</b><span class="hint">使用 DSH provider/model，复制 prompt 兜底</span></div>
+      </div>`
     const actions = document.createElement('div')
     actions.className = 'filter-actions'
     const analyzeBtn = document.createElement('button')
@@ -653,6 +686,27 @@
     actions.appendChild(analyzeBtn)
     actions.appendChild(copyBtn)
     intro.appendChild(actions)
+    const filterControls = document.createElement('div')
+    filterControls.className = 'filter-actions'
+    ;[
+      ['all', '全部'],
+      ['high', '高优先级'],
+      ['new', '新内容'],
+      ['track', '追踪/未读'],
+      ['browser', '浏览器会话'],
+      ['workspace', '工作台/项目'],
+    ].forEach(([key, label]) => {
+      const btn = document.createElement('button')
+      btn.className = `ghost${opportunityFilter === key ? ' active' : ''}`
+      btn.textContent = label
+      btn.addEventListener('click', () => { opportunityFilter = key; renderOpportunities() })
+      filterControls.appendChild(btn)
+    })
+    intro.appendChild(filterControls)
+    const dataStatus = document.createElement('div')
+    dataStatus.className = 'hint'
+    dataStatus.textContent = `浏览器会话上次读取：${browserTime}；本地缓存来自热榜/动态后台刷新，筛选只影响当前报告和导出。`
+    intro.appendChild(dataStatus)
     const sessionControls = document.createElement('div')
     sessionControls.className = 'filter-actions'
     const profileSelect = document.createElement('select')
@@ -667,7 +721,7 @@
     const sessionStatus = document.createElement('span')
     sessionStatus.className = 'hint'
     sessionStatus.style.margin = '6px 0 0'
-    sessionStatus.textContent = `${readBrowserSessionItems().length} 条浏览器会话线索已缓存；Cookie 只在 host 端读取，不写入导出或模型。`
+    sessionStatus.textContent = `${summary.browserItems.length} 条浏览器会话线索已缓存；上次读取 ${browserTime}；Cookie 只在 host 端读取，不写入导出或模型。`
     const detectBtn = document.createElement('button')
     detectBtn.className = 'ghost'
     detectBtn.textContent = '检测浏览器会话'
@@ -719,8 +773,8 @@
     box.appendChild(intro)
     box.appendChild(output)
     if (items.length === 0) {
-      box.appendChild(Object.assign(document.createElement('div'), { className: 'empty', textContent: '暂无机会候选。先刷新热榜/关注动态、添加追踪项，或把内容加入工作台。' }))
-      $('updated').textContent = '机会报告依赖本地缓存与工作台数据'
+      box.appendChild(Object.assign(document.createElement('div'), { className: 'empty', textContent: allItems.length === 0 ? '暂无机会候选。先刷新热榜/关注动态、添加追踪项，或读取浏览器会话。' : '当前筛选下没有候选。切回“全部”或读取更多数据源。' }))
+      $('updated').textContent = `机会候选 ${items.length}/${allItems.length} 条 · ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`
       return
     }
     const top = items.slice(0, 20)
