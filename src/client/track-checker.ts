@@ -7,6 +7,7 @@
  * - zhihu.tracks    : the track list with per-track `seen` ContentID sets
  * - zhihu.secret    : Access Secret (sent as x-zhihu-secret header)
  * - zhihu.trackInterval : minutes between checks (0 = off)
+ * - zhihu.trackLimit / trackSinceHours / trackContentType: search breadth and local post filters
  * - zhihu.trackNotify   : whether to fire system notifications
  * - zhihu.autoBrief     : whether to auto-distill briefs (zhida)
  * - zhihu.unread    : running unread counter for the sidebar badge
@@ -17,6 +18,9 @@ const KEYS = {
   tracks: 'zhihu.tracks',
   secret: 'zhihu.secret',
   trackInterval: 'zhihu.trackInterval',
+  trackLimit: 'zhihu.trackLimit',
+  trackSinceHours: 'zhihu.trackSinceHours',
+  trackContentType: 'zhihu.trackContentType',
   trackNotify: 'zhihu.trackNotify',
   autoBrief: 'zhihu.autoBrief',
   unread: 'zhihu.unread',
@@ -90,6 +94,37 @@ function isFiltered(item: FilterableItem): boolean {
   return false
 }
 
+function trackLimit(): number {
+  return Math.min(Math.max(Number(lsGet(KEYS.trackLimit) ?? '10') || 10, 5), 20)
+}
+
+function trackContentType(): string {
+  const value = lsGet(KEYS.trackContentType) ?? 'all'
+  return ['all', 'answer', 'article', 'question', 'pin'].includes(value) ? value : 'all'
+}
+
+function trackSinceHours(): number {
+  return Math.max(Number(lsGet(KEYS.trackSinceHours) ?? '0') || 0, 0)
+}
+
+function contentTypeOf(item: any): string {
+  return String(item.ContentType ?? item.contentType ?? item.type ?? '').toLowerCase()
+}
+
+function passesTrackOptions(item: any): boolean {
+  const typeSetting = trackContentType()
+  if (typeSetting !== 'all') {
+    const type = contentTypeOf(item)
+    if (type !== '' && !type.includes(typeSetting)) return false
+  }
+  const hours = trackSinceHours()
+  if (hours > 0) {
+    const ts = Number(item.EditTime ?? item.CreatedTime ?? item.FavTime ?? item.created_at ?? item.ts ?? 0)
+    if (ts > 0 && ts < Math.floor(Date.now() / 1000) - hours * 3600) return false
+  }
+  return true
+}
+
 function readTracks(): Track[] {
   try {
     const raw = lsGet(KEYS.tracks)
@@ -159,15 +194,15 @@ async function checkOne(track: Track, secret: string, autoBrief: boolean): Promi
   try {
     const headers: Record<string, string> = { 'x-zhihu-secret': secret }
     if (track.questionId && track.query) {
-      payload = await fetch(`/zhihu-dashboard/api/answers?q=${encodeURIComponent(track.questionId)}&title=${encodeURIComponent(track.query)}&count=10`, { headers, cache: 'no-store' }).then(r => r.json())
+      payload = await fetch(`/zhihu-dashboard/api/answers?q=${encodeURIComponent(track.questionId)}&title=${encodeURIComponent(track.query)}&count=${trackLimit()}`, { headers, cache: 'no-store' }).then(r => r.json())
     } else {
-      payload = await fetch(`/zhihu-dashboard/api/learn?q=${encodeURIComponent(track.query)}&count=10`, { headers, cache: 'no-store' }).then(r => r.json())
+      payload = await fetch(`/zhihu-dashboard/api/learn?q=${encodeURIComponent(track.query)}&count=${trackLimit()}`, { headers, cache: 'no-store' }).then(r => r.json())
     }
   } catch {
     return 0
   }
   if (payload?.ok !== true || !Array.isArray(payload.Data?.Items)) return 0
-  let items = payload.Data.Items as Array<any>
+  let items = (payload.Data.Items as Array<any>).filter((it) => passesTrackOptions(it))
   if (track.type === 'person') {
     const name = String(track.query ?? '').trim()
     items = items.filter((it) => String(it.AuthorName ?? '').trim() === name)

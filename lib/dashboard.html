@@ -199,6 +199,31 @@
     </div>
     <div class="row">
       <div>
+        <label for="trackLimit">每个追踪项检查条数 (5-20)</label>
+        <input id="trackLimit" type="number" min="5" max="20">
+      </div>
+      <div>
+        <label for="trackSinceHours">追踪时间窗</label>
+        <select id="trackSinceHours">
+          <option value="0">不限时间</option>
+          <option value="24">近 24 小时</option>
+          <option value="72">近 3 天</option>
+          <option value="168">近 7 天</option>
+        </select>
+      </div>
+      <div>
+        <label for="trackContentType">追踪内容类型</label>
+        <select id="trackContentType">
+          <option value="all">全部</option>
+          <option value="answer">回答</option>
+          <option value="article">文章</option>
+          <option value="question">问题</option>
+          <option value="pin">想法</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div>
         <label for="trackNotify">追踪新内容系统通知</label>
         <div style="display:flex;align-items:center;gap:8px;padding-top:7px">
           <input id="trackNotify" type="checkbox" style="width:auto">
@@ -252,7 +277,7 @@
 (() => {
   'use strict'
   const $ = (id) => document.getElementById(id)
-  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', trackInterval: 'zhihu.trackInterval', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', localSortMode: 'zhihu.localSortMode', preferKeywords: 'zhihu.preferKeywords', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
+  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', trackInterval: 'zhihu.trackInterval', trackLimit: 'zhihu.trackLimit', trackSinceHours: 'zhihu.trackSinceHours', trackContentType: 'zhihu.trackContentType', trackHistory: 'zhihu.trackHistory', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', localSortMode: 'zhihu.localSortMode', preferKeywords: 'zhihu.preferKeywords', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
 
   let tab = 'hot'
   let timer = null
@@ -463,6 +488,9 @@
       feedSource: lsGet(LS.feedSource, 'favorites'),
       contentsSort: lsGet(LS.contentsSort, 'ts'),
       trackInterval: Number(lsGet(LS.trackInterval, '0')) || 0,
+      trackLimit: Math.min(Math.max(Number(lsGet(LS.trackLimit, '10')) || 10, 5), 20),
+      trackSinceHours: Math.max(Number(lsGet(LS.trackSinceHours, '0')) || 0, 0),
+      trackContentType: lsGet(LS.trackContentType, 'all'),
       autoBrief: lsGet(LS.autoBrief, '0') === '1',
       trackNotify: lsGet(LS.trackNotify, '1') === '1',
       localSortMode: lsGet(LS.localSortMode, 'source'),
@@ -899,12 +927,43 @@
     try { localStorage.setItem(LS.tracks, JSON.stringify(list)) } catch { /* private mode */ }
   }
 
+  function readTrackHistory() {
+    try {
+      const list = JSON.parse(lsGet(LS.trackHistory, '[]'))
+      return Array.isArray(list) ? list : []
+    } catch { return [] }
+  }
+
+  function rememberTrackQuery(query) {
+    const clean = String(query || '').trim()
+    if (!clean) return
+    const rest = readTrackHistory().filter((it) => it !== clean)
+    lsSet(LS.trackHistory, JSON.stringify([clean, ...rest].slice(0, 12)))
+  }
+
+  function contentTypeOf(it) {
+    return String(it.ContentType || it.contentType || it.type || '').toLowerCase()
+  }
+
+  function passesTrackOptions(it, cfg = config()) {
+    if (cfg.trackContentType && cfg.trackContentType !== 'all') {
+      const type = contentTypeOf(it)
+      if (type && !type.includes(cfg.trackContentType)) return false
+    }
+    if (cfg.trackSinceHours > 0) {
+      const ts = Number(it.EditTime || it.CreatedTime || it.FavTime || it.created_at || it.ts || 0)
+      if (ts > 0 && ts < Math.floor(Date.now() / 1000) - cfg.trackSinceHours * 3600) return false
+    }
+    return true
+  }
+
   function addTrack(queryText) {
     const text = String(queryText ?? '').trim()
     if (!text) return
     const list = readTracks()
     if (list.some((t) => t.query === text || t.questionId === text)) return // dedupe
     list.push({ id: String(Date.now()), query: text, seen: {}, createdAt: Date.now() })
+    rememberTrackQuery(text)
     writeTracks(list)
   }
 
@@ -927,6 +986,7 @@
     if (payload && payload.ok === true && payload.title) {
       const title = String(payload.title)
       list.push({ id: String(Date.now()), query: title, questionId: qid, seen: {}, createdAt: Date.now() })
+      rememberTrackQuery(title)
       writeTracks(list)
       $('status').textContent = `已追踪问题：${title}`
       return true
@@ -935,6 +995,7 @@
     const title = prompt('知乎没有索引到这个问题的标题，无法自动解析。\n请输入该问题的标题（用于搜索它下面的回答）：', '')
     if (title !== null && title.trim() !== '') {
       list.push({ id: String(Date.now()), query: title.trim(), questionId: qid, seen: {}, createdAt: Date.now() })
+      rememberTrackQuery(title.trim())
       writeTracks(list)
       $('status').textContent = `已追踪问题：${title.trim()}`
     } else {
@@ -1311,8 +1372,9 @@
     box.innerHTML = `
       <div class="card" style="margin-bottom:12px">
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <input id="track-q" type="text" placeholder="粘贴知乎问题链接 或 输入关键词（如：AI 应用创意）"
+          <input id="track-q" list="track-history" type="text" placeholder="粘贴知乎问题链接 或 输入关键词（如：AI 应用创意）"
             style="flex:1;min-width:220px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px">
+          <datalist id="track-history">${readTrackHistory().map((q) => `<option value="${escapeHtml(q)}"></option>`).join('')}</datalist>
           <button class="ghost" id="track-add">+ 追踪</button>
           <button class="ghost" id="track-check">检查更新</button>
         </div>
@@ -1498,25 +1560,26 @@
     const track = tracks.find((t) => t.id === id)
     if (!track) return 0
     const secret = config().secret
+    const cfg = config()
     const before = new Set(Object.keys(track.seen || {}))
     const isFirstCheck = before.size === 0
     let payload
     try {
       if (track.questionId && track.query) {
         // Question-track: search the resolved title (answers under that question).
-        payload = await fetchJson(`/zhihu-dashboard/api/answers?q=${encodeURIComponent(track.questionId)}&title=${encodeURIComponent(track.query)}&count=10`, secret)
+        payload = await fetchJson(`/zhihu-dashboard/api/answers?q=${encodeURIComponent(track.questionId)}&title=${encodeURIComponent(track.query)}&count=${cfg.trackLimit}`, secret)
       } else if (track.type === 'person') {
         // Person-track: search the name, then keep only items authored by them.
-        payload = await fetchJson(`/zhihu-dashboard/api/learn?q=${encodeURIComponent(track.query)}&count=10`, secret)
+        payload = await fetchJson(`/zhihu-dashboard/api/learn?q=${encodeURIComponent(track.query)}&count=${cfg.trackLimit}`, secret)
       } else {
         // Keyword-track: plain search.
-        payload = await fetchJson(`/zhihu-dashboard/api/learn?q=${encodeURIComponent(track.query)}&count=10`, secret)
+        payload = await fetchJson(`/zhihu-dashboard/api/learn?q=${encodeURIComponent(track.query)}&count=${cfg.trackLimit}`, secret)
       }
     } catch {
       return 0
     }
     if (payload.ok !== true || !Array.isArray(payload.Data?.Items)) return 0
-    let items = payload.Data.Items
+    let items = payload.Data.Items.filter((it) => passesTrackOptions(it, cfg))
     if (track.type === 'person') {
       // Keep only content the tracked person actually wrote (search may also
       // return content merely mentioning the name).
@@ -1683,6 +1746,9 @@
     $('feedSource').value = cfg.feedSource
     $('contentsSort').value = cfg.contentsSort
     $('trackInterval').value = cfg.trackInterval
+    $('trackLimit').value = cfg.trackLimit
+    $('trackSinceHours').value = String(cfg.trackSinceHours)
+    $('trackContentType').value = cfg.trackContentType
     $('autoBrief').checked = cfg.autoBrief
     $('trackNotify').checked = cfg.trackNotify
     $('localSortMode').value = cfg.localSortMode
@@ -1702,6 +1768,9 @@
     lsSet(LS.feedSource, $('feedSource').value)
     lsSet(LS.contentsSort, $('contentsSort').value === 'like_count' ? 'like_count' : 'ts')
     lsSet(LS.trackInterval, String(Math.max(Number($('trackInterval').value) || 0, 0)))
+    lsSet(LS.trackLimit, String(Math.min(Math.max(Number($('trackLimit').value) || 10, 5), 20)))
+    lsSet(LS.trackSinceHours, String(Math.max(Number($('trackSinceHours').value) || 0, 0)))
+    lsSet(LS.trackContentType, ['all', 'answer', 'article', 'question', 'pin'].includes($('trackContentType').value) ? $('trackContentType').value : 'all')
     lsSet(LS.autoBrief, $('autoBrief').checked ? '1' : '0')
     lsSet(LS.trackNotify, $('trackNotify').checked ? '1' : '0')
     lsSet(LS.localSortMode, ['source', 'new', 'likes', 'time', 'score'].includes($('localSortMode').value) ? $('localSortMode').value : 'source')
