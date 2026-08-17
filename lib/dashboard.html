@@ -208,6 +208,22 @@
     </div>
     <div class="row">
       <div>
+        <label for="localSortMode">本地排序</label>
+        <select id="localSortMode">
+          <option value="source">平台默认</option>
+          <option value="new">新增优先</option>
+          <option value="likes">点赞优先</option>
+          <option value="time">时间优先</option>
+          <option value="score">本地评分</option>
+        </select>
+      </div>
+      <div>
+        <label for="preferKeywords">偏好关键词（每行一个，本地评分加权）</label>
+        <textarea id="preferKeywords" placeholder="AI 应用\n开源\n产品化"></textarea>
+      </div>
+    </div>
+    <div class="row">
+      <div>
         <label for="blockKeywords">屏蔽关键词（每行一个，匹配标题/摘要）</label>
         <textarea id="blockKeywords" placeholder="盐选\n带货\n推广"></textarea>
       </div>
@@ -236,7 +252,7 @@
 (() => {
   'use strict'
   const $ = (id) => document.getElementById(id)
-  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', trackInterval: 'zhihu.trackInterval', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
+  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', trackInterval: 'zhihu.trackInterval', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', localSortMode: 'zhihu.localSortMode', preferKeywords: 'zhihu.preferKeywords', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
 
   let tab = 'hot'
   let timer = null
@@ -390,6 +406,33 @@
     return m ? m[0] : ''
   }
 
+  function contentScore(it, cfg = config()) {
+    const text = filterTextOf(it).toLowerCase()
+    const likes = Number(it.likes || it.LikeCount || it.FollowerCount || 0) || 0
+    let score = Math.log10(likes + 1) * 10
+    if (it.isNew) score += 50
+    for (const kw of cfg.preferKeywords) {
+      if (text.includes(kw.toLowerCase())) score += 25
+    }
+    if (it.author && cfg.blockAuthors.includes(String(it.author).trim())) score -= 100
+    return score
+  }
+
+  function itemTimeValue(it) {
+    const value = it.time || it.FavTime || it.foundAt || it.createdAt || 0
+    return typeof value === 'number' ? value : Date.parse(value) || 0
+  }
+
+  function sortContentItems(items, cfg = config()) {
+    const mode = cfg.localSortMode
+    if (mode === 'source') return items
+    const list = [...items]
+    if (mode === 'new') return list.sort((a, b) => Number(Boolean(b.isNew)) - Number(Boolean(a.isNew)) || itemTimeValue(b) - itemTimeValue(a))
+    if (mode === 'likes') return list.sort((a, b) => (Number(b.likes || b.LikeCount || b.FollowerCount || 0) || 0) - (Number(a.likes || a.LikeCount || a.FollowerCount || 0) || 0))
+    if (mode === 'time') return list.sort((a, b) => itemTimeValue(b) - itemTimeValue(a))
+    return list.sort((a, b) => contentScore(b, cfg) - contentScore(a, cfg))
+  }
+
   function appendFilterActions(card, it) {
     const actions = document.createElement('div')
     actions.className = 'filter-actions'
@@ -422,6 +465,8 @@
       trackInterval: Number(lsGet(LS.trackInterval, '0')) || 0,
       autoBrief: lsGet(LS.autoBrief, '0') === '1',
       trackNotify: lsGet(LS.trackNotify, '1') === '1',
+      localSortMode: lsGet(LS.localSortMode, 'source'),
+      preferKeywords: linesOf(lsGet(LS.preferKeywords, '')),
       blockKeywords: linesOf(lsGet(LS.blockKeywords, '')),
       blockAuthors: linesOf(lsGet(LS.blockAuthors, '')),
       blockRegex: linesOf(lsGet(LS.blockRegex, '')),
@@ -510,13 +555,15 @@
       author: it.AuthorName || (it.Author && it.Author.Name) || '',
       thumb: it.ThumbnailUrl || it.thumbnail || '',
       cid: String(it.ContentID || it.ContentId || it.id || ''),
+      likes: it.LikeCount || it.like_count || it.VoteupCount || '',
+      time: it.FavTime || it.CreatedTime || it.created_at || it.ts || '',
     }))
   }
 
   function renderList(entries, trend) {
     const box = $('content')
     const filtered = applyContentFilter(entries)
-    const visible = filtered.kept
+    const visible = sortContentItems(filtered.kept)
     if (visible.length === 0) {
       box.innerHTML = entries.length === 0
         ? '<div class="empty">暂无数据</div>'
@@ -941,8 +988,10 @@
       title: it.Name || '(未知用户)',
       summary: it.Headline || '',
       author: it.Name || '',
+      likes: it.FollowerCount || 0,
     })))
-    const items = filtered.kept.map((it) => it.raw)
+    const sorted = sortContentItems(filtered.kept)
+    const items = sorted.map((it) => it.raw)
     $('status').textContent = `共关注 ${items.length}/${rawItems.length} 人${filterStatusSuffix(filtered.blocked)}`
     if (items.length === 0) {
       box.innerHTML = rawItems.length === 0
@@ -1126,8 +1175,11 @@
       url: it.Url || '#',
       summary: String(it.Summary || it.ContentText || ''),
       author: it.Author?.Name || '',
+      likes: it.LikeCount || 0,
+      time: it.FavTime || 0,
     })))
-    const items = filtered.kept.map((it) => it.raw)
+    const sorted = sortContentItems(filtered.kept)
+    const items = sorted.map((it) => it.raw)
     count.textContent = `${items.length}/${rawItems.length} 条${filterStatusSuffix(filtered.blocked)}`
     if (items.length === 0) {
       detail.innerHTML = rawItems.length === 0
@@ -1195,7 +1247,7 @@
     const box = $('content')
     const items = readUnreadItems()
     const filtered = applyContentFilter(items)
-    const visible = filtered.kept
+    const visible = sortContentItems(filtered.kept)
     if (visible.length === 0) {
       box.innerHTML = items.length === 0
         ? '<div class="empty">没有未读的新内容。</div>'
@@ -1292,9 +1344,9 @@
     const tracks = readTracks()
       .map((t) => ({
         track: t,
-        fresh: applyContentFilter(Array.isArray(t.lastItems) ? t.lastItems.filter((it) => it.isNew) : []).kept,
+        fresh: sortContentItems(applyContentFilter(Array.isArray(t.lastItems) ? t.lastItems.filter((it) => it.isNew) : []).kept),
       }))
-      .sort((a, b) => b.fresh.length - a.fresh.length || (b.track.checkedAt || 0) - (a.track.checkedAt || 0))
+      .sort((a, b) => b.fresh.length - a.fresh.length || contentScore(b.track) - contentScore(a.track) || (b.track.checkedAt || 0) - (a.track.checkedAt || 0))
     if (tracks.length === 0) {
       listEl.innerHTML = '<div class="track-empty">还没有追踪项 —— 添加一个你关注的问题/话题，有新回答或新创意时会标 NEW。</div>'
       setExportState('知乎追踪新增研究包', [])
@@ -1535,7 +1587,7 @@
     // 用户查看了追踪内容 → 清空未读计数
     try { localStorage.setItem('zhihu.unread', '0') } catch { /* private mode */ }
     const box = $('content')
-    const items = applyContentFilter([...track.lastItems]).kept.sort((a, b) => Number(Boolean(b.isNew)) - Number(Boolean(a.isNew)))
+    const items = sortContentItems(applyContentFilter([...track.lastItems]).kept)
     setExportState(`知乎追踪「${track.query}」研究包`, items.map((it) => normalizeExportItem(Object.assign({ source: `追踪：${track.query}` }, it))))
     box.innerHTML = `
       <div class="card">
@@ -1633,6 +1685,8 @@
     $('trackInterval').value = cfg.trackInterval
     $('autoBrief').checked = cfg.autoBrief
     $('trackNotify').checked = cfg.trackNotify
+    $('localSortMode').value = cfg.localSortMode
+    $('preferKeywords').value = cfg.preferKeywords.join('\n')
     $('blockKeywords').value = cfg.blockKeywords.join('\n')
     $('blockAuthors').value = cfg.blockAuthors.join('\n')
     $('blockRegex').value = cfg.blockRegex.join('\n')
@@ -1650,6 +1704,8 @@
     lsSet(LS.trackInterval, String(Math.max(Number($('trackInterval').value) || 0, 0)))
     lsSet(LS.autoBrief, $('autoBrief').checked ? '1' : '0')
     lsSet(LS.trackNotify, $('trackNotify').checked ? '1' : '0')
+    lsSet(LS.localSortMode, ['source', 'new', 'likes', 'time', 'score'].includes($('localSortMode').value) ? $('localSortMode').value : 'source')
+    lsSet(LS.preferKeywords, $('preferKeywords').value.trim())
     lsSet(LS.blockKeywords, $('blockKeywords').value.trim())
     lsSet(LS.blockAuthors, $('blockAuthors').value.trim())
     lsSet(LS.blockRegex, $('blockRegex').value.trim())
