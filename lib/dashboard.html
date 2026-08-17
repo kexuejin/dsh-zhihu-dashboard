@@ -297,7 +297,7 @@
 (() => {
   'use strict'
   const $ = (id) => document.getElementById(id)
-  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', workspaceItems: 'zhihu.workspaceItems', researchProjects: 'zhihu.researchProjects', trackInterval: 'zhihu.trackInterval', trackLimit: 'zhihu.trackLimit', trackSinceHours: 'zhihu.trackSinceHours', trackContentType: 'zhihu.trackContentType', trackHistory: 'zhihu.trackHistory', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', localSortMode: 'zhihu.localSortMode', preferKeywords: 'zhihu.preferKeywords', favSearch: 'zhihu.favSearch', favSort: 'zhihu.favSort', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
+  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', workspaceItems: 'zhihu.workspaceItems', researchProjects: 'zhihu.researchProjects', browserProfile: 'zhihu.browserProfile', browserSessionItems: 'zhihu.browserSessionItems', trackInterval: 'zhihu.trackInterval', trackLimit: 'zhihu.trackLimit', trackSinceHours: 'zhihu.trackSinceHours', trackContentType: 'zhihu.trackContentType', trackHistory: 'zhihu.trackHistory', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', localSortMode: 'zhihu.localSortMode', preferKeywords: 'zhihu.preferKeywords', favSearch: 'zhihu.favSearch', favSort: 'zhihu.favSort', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
 
   let tab = 'hot'
   let timer = null
@@ -408,6 +408,51 @@
     lsSet(LS.researchProjects, JSON.stringify(list.slice(0, 100)))
   }
 
+  function readBrowserSessionItems() {
+    try {
+      const list = JSON.parse(lsGet(LS.browserSessionItems, '[]'))
+      return Array.isArray(list) ? list : []
+    } catch { return [] }
+  }
+
+  function writeBrowserSessionItems(items) {
+    lsSet(LS.browserSessionItems, JSON.stringify((Array.isArray(items) ? items : []).slice(0, 100)))
+  }
+
+  async function detectBrowserProfiles(select, statusEl) {
+    statusEl.textContent = '检测浏览器 profile…'
+    const payload = await fetchJson('/zhihu-dashboard/api/browser-profiles', '')
+    if (payload.ok !== true) {
+      statusEl.textContent = payload.error || '检测失败'
+      return []
+    }
+    select.innerHTML = ''
+    const profiles = Array.isArray(payload.profiles) ? payload.profiles : []
+    profiles.forEach((profile) => {
+      const option = document.createElement('option')
+      option.value = profile.id
+      option.textContent = `${profile.browser} / ${profile.name}`
+      select.appendChild(option)
+    })
+    const saved = lsGet(LS.browserProfile, '')
+    if (saved && profiles.some((profile) => profile.id === saved)) select.value = saved
+    else if (profiles[0]) { select.value = profiles[0].id; lsSet(LS.browserProfile, profiles[0].id) }
+    statusEl.textContent = profiles.length === 0 ? `未检测到可读 profile（平台：${payload.platform || 'unknown'}）` : `检测到 ${profiles.length} 个 profile`
+    return profiles
+  }
+
+  async function loadBrowserSessionItems(profileId, statusEl, cookie = '') {
+    statusEl.textContent = '读取浏览器会话线索…'
+    const payload = await postJson('/zhihu-dashboard/api/browser-session-items', { profileId, cookie, limit: 30 })
+    if (payload.ok !== true) {
+      statusEl.textContent = payload.error || '读取失败'
+      return
+    }
+    writeBrowserSessionItems((payload.items || []).map((it) => Object.assign({ source: '浏览器会话' }, it)))
+    statusEl.textContent = `已读取 ${payload.items?.length || 0} 条浏览器会话线索`
+    renderOpportunities()
+  }
+
   function analysisPromptFor(title, items) {
     return [
       `请作为产品/研究分析助手，基于下面的知乎研究包《${title}》输出结构化分析。`,
@@ -495,6 +540,7 @@
 
   function buildOpportunityCandidates() {
     const raw = []
+    readBrowserSessionItems().forEach((it) => raw.push(Object.assign({ source: '浏览器会话' }, it)))
     cachedDiscoveryItems().forEach((it) => raw.push(it))
     readUnreadItems().forEach((it) => raw.push(Object.assign({ source: it.trackQuery ? `未读追踪：${it.trackQuery}` : '未读追踪', isNew: true }, it)))
     readTracks().forEach((track) => {
@@ -551,7 +597,7 @@
     box.innerHTML = ''
     const intro = document.createElement('div')
     intro.className = 'card'
-    intro.innerHTML = '<div class="title">机会报告</div><div class="summary" style="-webkit-line-clamp:unset">从热榜/动态缓存、追踪新增、未读、工作台和研究项目里聚合线索，用本地规则打分；可直接调用当前 DSH provider/model 生成开发机会报告，或复制 prompt 给 Agent。</div>'
+    intro.innerHTML = '<div class="title">机会报告</div><div class="summary" style="-webkit-line-clamp:unset">从浏览器会话、热榜/动态缓存、追踪新增、未读、工作台和研究项目里聚合线索，用本地规则打分；可直接调用当前 DSH provider/model 生成开发机会报告，或复制 prompt 给 Agent。</div>'
     const actions = document.createElement('div')
     actions.className = 'filter-actions'
     const analyzeBtn = document.createElement('button')
@@ -566,6 +612,65 @@
     actions.appendChild(analyzeBtn)
     actions.appendChild(copyBtn)
     intro.appendChild(actions)
+    const sessionControls = document.createElement('div')
+    sessionControls.className = 'filter-actions'
+    const profileSelect = document.createElement('select')
+    profileSelect.style.cssText = 'min-width:220px;padding:5px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px'
+    const savedProfile = lsGet(LS.browserProfile, '')
+    if (savedProfile) {
+      const option = document.createElement('option')
+      option.value = savedProfile
+      option.textContent = '已保存的浏览器 profile'
+      profileSelect.appendChild(option)
+    }
+    const sessionStatus = document.createElement('span')
+    sessionStatus.className = 'hint'
+    sessionStatus.style.margin = '6px 0 0'
+    sessionStatus.textContent = `${readBrowserSessionItems().length} 条浏览器会话线索已缓存；Cookie 只在 host 端读取，不写入导出或模型。`
+    const detectBtn = document.createElement('button')
+    detectBtn.className = 'ghost'
+    detectBtn.textContent = '检测浏览器会话'
+    detectBtn.addEventListener('click', () => detectBrowserProfiles(profileSelect, sessionStatus))
+    const loadSessionBtn = document.createElement('button')
+    loadSessionBtn.className = 'ghost'
+    loadSessionBtn.textContent = '读取会话线索'
+    loadSessionBtn.addEventListener('click', () => {
+      if (!profileSelect.value) {
+        sessionStatus.textContent = '请先检测并选择浏览器 profile'
+        return
+      }
+      lsSet(LS.browserProfile, profileSelect.value)
+      loadBrowserSessionItems(profileSelect.value, sessionStatus)
+    })
+    const verifySessionBtn = document.createElement('button')
+    verifySessionBtn.className = 'ghost'
+    verifySessionBtn.textContent = '验证登录态'
+    verifySessionBtn.addEventListener('click', async () => {
+      if (!profileSelect.value) {
+        sessionStatus.textContent = '请先检测并选择浏览器 profile'
+        return
+      }
+      sessionStatus.textContent = '验证浏览器登录态…'
+      lsSet(LS.browserProfile, profileSelect.value)
+      const payload = await postJson('/zhihu-dashboard/api/browser-session-verify', { profileId: profileSelect.value })
+      sessionStatus.textContent = payload.ok === true
+        ? `验证完成：${payload.loggedIn ? '看起来已登录' : 'Cookie 存在但未确认登录'}（HTTP ${payload.status || '-'}）`
+        : (payload.error || '验证失败')
+    })
+    const manualCookieBtn = document.createElement('button')
+    manualCookieBtn.className = 'ghost'
+    manualCookieBtn.textContent = '手动 Cookie'
+    manualCookieBtn.addEventListener('click', () => {
+      const cookie = prompt('粘贴 zhihu.com Cookie（仅本次发送到本机 host 用于只读读取，不保存）：', '')
+      if (cookie && cookie.trim()) loadBrowserSessionItems('', sessionStatus, cookie.trim())
+    })
+    sessionControls.appendChild(profileSelect)
+    sessionControls.appendChild(detectBtn)
+    sessionControls.appendChild(verifySessionBtn)
+    sessionControls.appendChild(loadSessionBtn)
+    sessionControls.appendChild(manualCookieBtn)
+    intro.appendChild(sessionControls)
+    intro.appendChild(sessionStatus)
     const output = document.createElement('div')
     output.className = 'card'
     output.style.display = 'none'
