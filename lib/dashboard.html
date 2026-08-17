@@ -92,6 +92,8 @@
   .rank { color: var(--accent2); font-weight: 700; margin-right: 4px; }
   .thumb { border-radius: 8px; margin: 6px 0 0; max-height: 120px; object-fit: cover; }
   .tag { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+  .filter-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .filter-actions button { font-size: 11px; padding: 4px 8px; }
   .fav-card { margin-bottom: 14px; }
   .fav-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .fav-head .title { flex: 1; }
@@ -219,6 +221,10 @@
       <textarea id="blockRegex" placeholder="广告|推广"></textarea>
       <div class="hint">过滤仅在本浏览器本地执行；无效正则会自动忽略。</div>
     </div>
+    <div>
+      <label>过滤历史（最近 20 条，可撤销）</label>
+      <div id="filterHistory" class="hint">暂无过滤历史</div>
+    </div>
     <div class="actions">
       <button class="ghost" id="close-settings">关闭</button>
       <button class="ghost" id="save-settings">保存</button>
@@ -230,7 +236,7 @@
 (() => {
   'use strict'
   const $ = (id) => document.getElementById(id)
-  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', trackInterval: 'zhihu.trackInterval', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex' }
+  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', trackInterval: 'zhihu.trackInterval', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
 
   let tab = 'hot'
   let timer = null
@@ -313,6 +319,96 @@
 
   function linesOf(value) {
     return String(value || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+  }
+
+  function uniqueLines(values) {
+    return [...new Set(values.map((s) => String(s || '').trim()).filter(Boolean))]
+  }
+
+  function readFilterHistory() {
+    try {
+      const list = JSON.parse(lsGet(LS.filterHistory, '[]'))
+      return Array.isArray(list) ? list : []
+    } catch { return [] }
+  }
+
+  function writeFilterHistory(list) {
+    lsSet(LS.filterHistory, JSON.stringify(list.slice(0, 20)))
+  }
+
+  function addFilterHistory(type, value) {
+    const entry = { type, value, at: Date.now() }
+    const rest = readFilterHistory().filter((it) => it.type !== type || it.value !== value)
+    writeFilterHistory([entry, ...rest])
+  }
+
+  function addBlockRule(type, value) {
+    const clean = String(value || '').trim()
+    if (!clean) return
+    const key = type === 'author' ? LS.blockAuthors : type === 'regex' ? LS.blockRegex : LS.blockKeywords
+    lsSet(key, uniqueLines([...linesOf(lsGet(key, '')), clean]).join('\n'))
+    addFilterHistory(type, clean)
+    tabCache.clear()
+    $('status').textContent = `已屏蔽${type === 'author' ? '作者' : type === 'regex' ? '正则' : '关键词'}：${clean}`
+    load()
+  }
+
+  function removeBlockRule(type, value) {
+    const key = type === 'author' ? LS.blockAuthors : type === 'regex' ? LS.blockRegex : LS.blockKeywords
+    lsSet(key, linesOf(lsGet(key, '')).filter((it) => it !== value).join('\n'))
+    writeFilterHistory(readFilterHistory().filter((it) => it.type !== type || it.value !== value))
+    tabCache.clear()
+    renderFilterHistory()
+    load()
+  }
+
+  function renderFilterHistory() {
+    const el = $('filterHistory')
+    if (!el) return
+    const list = readFilterHistory()
+    if (list.length === 0) {
+      el.textContent = '暂无过滤历史'
+      return
+    }
+    el.innerHTML = ''
+    list.forEach((it) => {
+      const row = document.createElement('div')
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:6px'
+      row.appendChild(Object.assign(document.createElement('span'), { textContent: `${it.type === 'author' ? '作者' : it.type === 'regex' ? '正则' : '关键词'}：${it.value}` }))
+      const undo = document.createElement('button')
+      undo.className = 'ghost'
+      undo.textContent = '撤销'
+      undo.addEventListener('click', () => removeBlockRule(it.type, it.value))
+      row.appendChild(undo)
+      el.appendChild(row)
+    })
+  }
+
+  function guessKeyword(it) {
+    const text = String(it.title || it.summary || '').replace(/<[^>]*>/g, '').trim()
+    const m = text.match(/[\u4e00-\u9fa5A-Za-z0-9]{2,12}/)
+    return m ? m[0] : ''
+  }
+
+  function appendFilterActions(card, it) {
+    const actions = document.createElement('div')
+    actions.className = 'filter-actions'
+    if (it.author) {
+      const author = document.createElement('button')
+      author.className = 'ghost'
+      author.textContent = '屏蔽作者'
+      author.addEventListener('click', () => addBlockRule('author', it.author))
+      actions.appendChild(author)
+    }
+    const keyword = guessKeyword(it)
+    if (keyword) {
+      const kw = document.createElement('button')
+      kw.className = 'ghost'
+      kw.textContent = `屏蔽「${keyword}」`
+      kw.addEventListener('click', () => addBlockRule('keyword', keyword))
+      actions.appendChild(kw)
+    }
+    if (actions.childNodes.length > 0) card.appendChild(actions)
   }
 
   function config() {
@@ -494,6 +590,7 @@
         img.loading = 'lazy'
         card.appendChild(img)
       }
+      appendFilterActions(card, it)
       box.appendChild(card)
     })
     setExportState(tab === 'hot' ? '知乎热榜研究包' : '知乎关注动态研究包', visible.map((it, idx) => Object.assign({ source: tab === 'hot' ? `热榜 #${idx + 1}` : '关注动态' }, it)))
@@ -898,6 +995,7 @@
         meta.textContent = `粉丝 ${it.FollowerCount}`
         card.appendChild(meta)
       }
+      appendFilterActions(card, { title: it.Name || '', summary: it.Headline || '', author: it.Name || '' })
       const trackBtn = document.createElement('button')
       trackBtn.className = 'ghost'
       trackBtn.textContent = '追踪 TA'
@@ -1071,6 +1169,7 @@
         summary.textContent = String(it.Summary || it.ContentText).replace(/<[^>]*>/g, '').slice(0, 300)
         card.appendChild(summary)
       }
+      appendFilterActions(card, { title: it.Title || '', summary: String(it.Summary || it.ContentText || ''), author: it.Author?.Name || '' })
       detail.appendChild(card)
     })
     return { count: items.length, items: exportItems }
@@ -1141,6 +1240,7 @@
         summary.textContent = it.summary.replace(/<[^>]*>/g, '').slice(0, 300)
         card.appendChild(summary)
       }
+      appendFilterActions(card, it)
       box.appendChild(card)
     })
   }
@@ -1309,6 +1409,7 @@
     distill.addEventListener('click', () => distillIdea(it.title || it.url || track.query, it.url, card))
     actions.appendChild(distill)
     card.appendChild(actions)
+    appendFilterActions(card, it)
     container.appendChild(card)
   }
 
@@ -1535,6 +1636,7 @@
     $('blockKeywords').value = cfg.blockKeywords.join('\n')
     $('blockAuthors').value = cfg.blockAuthors.join('\n')
     $('blockRegex').value = cfg.blockRegex.join('\n')
+    renderFilterHistory()
     $('settings').classList.add('open')
   }
 

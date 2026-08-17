@@ -16,7 +16,7 @@ Built on the official [zhihu-cli](https://developer.zhihu.com/zhihu-cli) (知乎
 - **收藏夹 (Favorites)** — browse collections with each collection's content shown inline immediately (title/summary/link/collect time/likes)
 - **未读 (Unread)** — an aggregated feed of everything newly found across your tracks (source track / author / time / summary); the sidebar badge jumps straight to it, with one-click mark-all-read
 - **Export / research packs** — copy the current hot/feed/favorites/unread/tracked-new list as Markdown or CSV, ready to paste into an agent conversation for analysis
-- **Local content filters** — browser-local keyword, author, and regex block rules apply across hot list, feed, favorites, unread, and tracked-post checks; filtered items do not create `NEW` notifications or auto-briefs
+- **Local content filters** — browser-local keyword, author, and regex block rules apply across hot list, feed, favorites, unread, and tracked-post checks; cards include quick block buttons, and settings keep a recent block history with one-click undo
 - Access Secret and limits are configured in the panel's own Settings dialog (stored in browser `localStorage` only)
 
 ### Agent tools (conversation)
