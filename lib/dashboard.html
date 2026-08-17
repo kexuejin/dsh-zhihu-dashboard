@@ -104,6 +104,9 @@
   .track-head {
     display: flex; align-items: center; gap: 8px; cursor: pointer;
   }
+  .track-new-items { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .track-new-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--ok); font-size: 12px; font-weight: 700; }
+  .track-new-items .card { margin-bottom: 8px; padding: 10px 12px; }
   .track-head .query { flex: 1; font-size: 14px; font-weight: 600; }
   .track-head .meta { font-size: 11px; color: var(--muted); }
   .track-empty { text-align: center; color: var(--muted); padding: 24px 0; font-size: 13px; }
@@ -667,14 +670,18 @@
     writeTracks(readTracks().filter((t) => t.id !== id))
   }
 
-  /** Mark every currently-visible ContentID of one track as seen. */
+  /** Mark every currently-visible ContentID of one track as seen and clear its NEW state. */
   function markTrackSeen(id, seen) {
     const list = readTracks()
     const track = list.find((t) => t.id === id)
     if (!track) return
     track.seen = Object.assign({}, track.seen, seen || {})
     track.checkedAt = Date.now()
+    track.lastNew = 0
     writeTracks(list)
+    try {
+      localStorage.setItem('zhihu.unread', String(list.reduce((sum, t) => sum + (Number(t.lastNew) || 0), 0)))
+    } catch { /* private mode */ }
   }
 
   /** Fetch and render the followees list (我关注的人). */
@@ -976,7 +983,7 @@
           <button class="ghost" id="track-add">+ 追踪</button>
           <button class="ghost" id="track-check">检查更新</button>
         </div>
-        <div class="hint">持续监控：问题链接（zhihu.com/question/…）→ 自动解析标题并追踪该问题下的回答；关键词 → 追踪同类新内容。每次「检查更新」搜索一次，新出现的回答标 <span style="color:var(--ok);font-weight:700">NEW</span>；可在设置中配置自动检查间隔。解析不到标题时会提示手动输入。</div>
+        <div class="hint">持续监控：问题链接（zhihu.com/question/…）→ 自动解析标题并追踪该问题下的回答；关键词 → 追踪同类新内容。每次「检查更新」搜索一次，新出现的内容标 <span style="color:var(--ok);font-weight:700">NEW</span>，并直接显示在对应追踪项下方；可在设置中配置自动检查间隔。解析不到标题时会提示手动输入。</div>
       </div>
       <div id="track-list"></div>
     `
@@ -998,10 +1005,10 @@
     renderTrackList()
   }
 
-  /** Render the persisted track list with per-track states. */
+  /** Render the persisted track list with per-track states and surface fresh posts inline. */
   function renderTrackList() {
     const listEl = $('track-list')
-    const tracks = readTracks()
+    const tracks = readTracks().sort((a, b) => (b.lastNew || 0) - (a.lastNew || 0) || (b.checkedAt || 0) - (a.checkedAt || 0))
     if (tracks.length === 0) {
       listEl.innerHTML = '<div class="track-empty">还没有追踪项 —— 添加一个你关注的问题/话题，有新回答或新创意时会标 NEW。</div>'
       return
@@ -1009,7 +1016,7 @@
     listEl.innerHTML = ''
     tracks.forEach((t) => {
       const card = document.createElement('div')
-      card.className = 'card'
+      card.className = 'card' + ((t.lastNew || 0) > 0 ? ' new-card' : '')
       const head = document.createElement('div')
       head.className = 'track-head'
       const query = document.createElement('span')
@@ -1048,13 +1055,31 @@
       meta.textContent = t.checkedAt ? `上次检查 ${new Date(t.checkedAt).toLocaleString('zh-CN', { hour12: false })}` : '尚未检查'
       head.appendChild(meta)
       card.appendChild(head)
+      const fresh = Array.isArray(t.lastItems) ? t.lastItems.filter((it) => it.isNew) : []
+      if (fresh.length > 0) {
+        const freshBox = document.createElement('div')
+        freshBox.className = 'track-new-items'
+        const freshHead = document.createElement('div')
+        freshHead.className = 'track-new-head'
+        freshHead.textContent = `新增内容（${fresh.length}）`
+        freshBox.appendChild(freshHead)
+        fresh.forEach((it) => renderTrackItemCard(freshBox, it, t, true))
+        card.appendChild(freshBox)
+      }
       const actions = document.createElement('div')
       actions.style.cssText = 'display:flex;gap:8px;margin-top:8px'
       const open = document.createElement('button')
       open.className = 'ghost'
-      open.textContent = '查看内容'
+      open.textContent = fresh.length > 0 ? '查看全部' : '查看内容'
       open.addEventListener('click', () => expandTrack(t.id))
       actions.appendChild(open)
+      if (fresh.length > 0) {
+        const mark = document.createElement('button')
+        mark.className = 'ghost'
+        mark.textContent = '标记已读'
+        mark.addEventListener('click', () => { markTrackSeen(t.id, {}); renderTrackShell() })
+        actions.appendChild(mark)
+      }
       const del = document.createElement('button')
       del.className = 'ghost'
       del.textContent = '删除'
@@ -1063,6 +1088,40 @@
       card.appendChild(actions)
       listEl.appendChild(card)
     })
+  }
+
+  function renderTrackItemCard(container, it, track, compact = false) {
+    const card = document.createElement('div')
+    card.className = 'card' + (it.isNew ? ' new-card' : '')
+    const title = document.createElement('div')
+    title.className = 'title'
+    const a = document.createElement('a')
+    a.href = it.url || '#'
+    a.target = '_blank'
+    a.rel = 'noreferrer'
+    a.textContent = it.title || '(无标题)'
+    title.appendChild(a)
+    if (it.isNew) title.appendChild(Object.assign(document.createElement('span'), { className: 'badge-new', textContent: 'NEW' }))
+    card.appendChild(title)
+    const meta = document.createElement('div')
+    meta.className = 'meta'
+    if (it.author) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `@ ${it.author}` }))
+    card.appendChild(meta)
+    if (it.summary) {
+      const summary = document.createElement('div')
+      summary.className = 'summary'
+      summary.textContent = it.summary.replace(/<[^>]*>/g, '').slice(0, compact ? 180 : 300)
+      card.appendChild(summary)
+    }
+    const actions = document.createElement('div')
+    actions.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:8px'
+    const distill = document.createElement('button')
+    distill.className = 'ghost'
+    distill.textContent = '提炼应用创意'
+    distill.addEventListener('click', () => distillIdea(it.title || it.url || track.query, it.url, card))
+    actions.appendChild(distill)
+    card.appendChild(actions)
+    container.appendChild(card)
   }
 
   /** Re-check every tracked query: search each, diff ContentIDs, persist new ones. */
@@ -1187,7 +1246,7 @@
     // 用户查看了追踪内容 → 清空未读计数
     try { localStorage.setItem('zhihu.unread', '0') } catch { /* private mode */ }
     const box = $('content')
-    const items = track.lastItems
+    const items = [...track.lastItems].sort((a, b) => Number(Boolean(b.isNew)) - Number(Boolean(a.isNew)))
     box.innerHTML = `
       <div class="card">
         <div class="track-head">
@@ -1229,39 +1288,7 @@
     }
     const detail = $('track-detail')
     if (items.length === 0) detail.innerHTML = '<div class="track-empty">最近一次检查没有搜到结果。</div>'
-    items.forEach((it) => {
-      const card = document.createElement('div')
-      card.className = 'card' + (it.isNew ? ' new-card' : '')
-      const title = document.createElement('div')
-      title.className = 'title'
-      const a = document.createElement('a')
-      a.href = it.url || '#'
-      a.target = '_blank'
-      a.rel = 'noreferrer'
-      a.textContent = it.title || '(无标题)'
-      title.appendChild(a)
-      if (it.isNew) title.appendChild(Object.assign(document.createElement('span'), { className: 'badge-new', textContent: 'NEW' }))
-      card.appendChild(title)
-      const meta = document.createElement('div')
-      meta.className = 'meta'
-      if (it.author) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `@ ${it.author}` }))
-      card.appendChild(meta)
-      if (it.summary) {
-        const summary = document.createElement('div')
-        summary.className = 'summary'
-        summary.textContent = it.summary.replace(/<[^>]*>/g, '').slice(0, 300)
-        card.appendChild(summary)
-      }
-      const actions = document.createElement('div')
-      actions.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:8px'
-      const distill = document.createElement('button')
-      distill.className = 'ghost'
-      distill.textContent = '提炼应用创意'
-      distill.addEventListener('click', () => distillIdea(it.title || it.url || track.query, it.url, card))
-      actions.appendChild(distill)
-      card.appendChild(actions)
-      detail.appendChild(card)
-    })
+    items.forEach((it) => renderTrackItemCard(detail, it, track, false))
     $('track-back').addEventListener('click', () => { markTrackSeen(id, {}); renderTrackShell() })
   }
 
@@ -1360,24 +1387,17 @@
   })
   $('settings').addEventListener('click', (e) => { if (e.target === $('settings')) $('settings').classList.remove('open') })
 
-  /** 有未读新内容时：跳到帖子追踪并展开有新增的项，让用户直接看到"新在哪"。 */
-  /** 有未读新内容时：跳到「未读」tab，让用户直接看到新内容列表。 */
+  /** 有未读新内容时：跳到帖子追踪页；新增卡片已在追踪项下方直接展示。 */
   function jumpToUnread() {
     let unread = 0
     try { unread = Number(localStorage.getItem('zhihu.unread') || '0') } catch { /* private mode */ }
     if (unread <= 0) return
-    // 优先跳未读 tab（unreadItems 由后台检查器写入）
-    if (readUnreadItems().length > 0) {
-      switchTab('unread')
+    const tracks = readTracks()
+    if (tracks.some((t) => (t.lastNew || 0) > 0)) {
+      switchTab('track')
       return
     }
-    // 兜底：unreadItems 为空但有 lastNew 计数 → 跳追踪 tab
-    const tracks = readTracks()
-    const withNew = tracks.find((t) => (t.lastNew || 0) > 0)
-    if (withNew !== undefined) {
-      switchTab('track')
-      setTimeout(() => expandTrack(withNew.id), 300)
-    }
+    if (readUnreadItems().length > 0) switchTab('unread')
   }
 
   load()
