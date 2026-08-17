@@ -23,6 +23,7 @@ window.__ModuleLoader__.load({
 		* - zhihu.trackNotify   : whether to fire system notifications
 		* - zhihu.autoBrief     : whether to auto-distill briefs (zhida)
 		* - zhihu.unread    : running unread counter for the sidebar badge
+		* - zhihu.blockKeywords / blockAuthors / blockRegex: browser-local filters honored before NEW notifications
 		*/
 		const KEYS = {
 			tracks: "zhihu.tracks",
@@ -31,7 +32,10 @@ window.__ModuleLoader__.load({
 			trackNotify: "zhihu.trackNotify",
 			autoBrief: "zhihu.autoBrief",
 			unread: "zhihu.unread",
-			unreadItems: "zhihu.unreadItems"
+			unreadItems: "zhihu.unreadItems",
+			blockKeywords: "zhihu.blockKeywords",
+			blockAuthors: "zhihu.blockAuthors",
+			blockRegex: "zhihu.blockRegex"
 		};
 		function lsGet(key) {
 			try {
@@ -44,6 +48,27 @@ window.__ModuleLoader__.load({
 			try {
 				localStorage.setItem(key, value);
 			} catch {}
+		}
+		function linesOf(value) {
+			return String(value ?? "").split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+		}
+		function filterTextOf(item) {
+			return [
+				item.title,
+				item.summary,
+				item.author,
+				item.trackQuery
+			].filter(Boolean).join("\n");
+		}
+		function isFiltered(item) {
+			const text = filterTextOf(item);
+			const lower = text.toLowerCase();
+			for (const author of linesOf(lsGet(KEYS.blockAuthors))) if (item.author && String(item.author).trim() === author) return true;
+			for (const keyword of linesOf(lsGet(KEYS.blockKeywords))) if (lower.includes(keyword.toLowerCase())) return true;
+			for (const pattern of linesOf(lsGet(KEYS.blockRegex))) try {
+				if (new RegExp(pattern, "i").test(text)) return true;
+			} catch {}
+			return false;
 		}
 		function readTracks() {
 			try {
@@ -139,14 +164,21 @@ window.__ModuleLoader__.load({
 				const name = String(track.query ?? "").trim();
 				items = items.filter((it) => String(it.AuthorName ?? "").trim() === name);
 			}
+			const normalizedItems = items.map((it) => ({
+				title: it.Title ?? "",
+				url: it.Url ?? "",
+				author: it.AuthorName ?? "",
+				summary: it.ContentText ?? "",
+				cid: String(it.ContentID ?? ""),
+				isNew: !isFirstCheck && !before.has(String(it.ContentID ?? ""))
+			}));
+			const lastItems = normalizedItems.filter((it) => !isFiltered(it));
 			const seenNow = {};
-			let newCount = 0;
-			for (const it of items) {
-				const cid = String(it.ContentID ?? "");
-				if (!cid) continue;
-				seenNow[cid] = true;
-				if (!before.has(cid)) newCount++;
+			for (const it of normalizedItems) {
+				const cid = String(it.cid ?? "");
+				if (cid) seenNow[cid] = true;
 			}
+			let newCount = lastItems.filter((it) => it.isNew).length;
 			if (isFirstCheck) newCount = 0;
 			const list = readTracks();
 			const cur = list.find((t) => t.id === track.id);
@@ -157,14 +189,6 @@ window.__ModuleLoader__.load({
 				};
 				cur.checkedAt = Date.now();
 				cur.lastNew = newCount;
-				const lastItems = items.map((it) => ({
-					title: it.Title ?? "",
-					url: it.Url ?? "",
-					author: it.AuthorName ?? "",
-					summary: it.ContentText ?? "",
-					cid: String(it.ContentID ?? ""),
-					isNew: !isFirstCheck && !before.has(String(it.ContentID ?? ""))
-				}));
 				cur.lastItems = lastItems;
 				writeTracks(list);
 				if (!isFirstCheck && newCount > 0) appendUnreadItems(track, lastItems.filter((it) => it.isNew));

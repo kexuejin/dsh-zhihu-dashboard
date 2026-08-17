@@ -79,10 +79,11 @@
   }
   .panel h2 { margin: 0 0 14px; font-size: 15px; }
   .panel label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
-  .panel input, .panel select {
+  .panel input, .panel select, .panel textarea {
     width: 100%; padding: 8px 10px; border-radius: 8px;
     border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px;
   }
+  .panel textarea { min-height: 68px; resize: vertical; font-family: inherit; }
   .panel .row { display: flex; gap: 10px; }
   .panel .row > div { flex: 1; }
   .panel .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
@@ -200,6 +201,21 @@
         </div>
       </div>
     </div>
+    <div class="row">
+      <div>
+        <label for="blockKeywords">屏蔽关键词（每行一个，匹配标题/摘要）</label>
+        <textarea id="blockKeywords" placeholder="盐选\n带货\n推广"></textarea>
+      </div>
+      <div>
+        <label for="blockAuthors">屏蔽作者（每行一个，精确匹配）</label>
+        <textarea id="blockAuthors" placeholder="作者昵称"></textarea>
+      </div>
+    </div>
+    <div>
+      <label for="blockRegex">正则屏蔽（每行一个，匹配标题/摘要/作者）</label>
+      <textarea id="blockRegex" placeholder="广告|推广"></textarea>
+      <div class="hint">过滤仅在本浏览器本地执行；无效正则会自动忽略。</div>
+    </div>
     <div class="actions">
       <button class="ghost" id="close-settings">关闭</button>
       <button class="ghost" id="save-settings">保存</button>
@@ -211,7 +227,7 @@
 (() => {
   'use strict'
   const $ = (id) => document.getElementById(id)
-  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', trackInterval: 'zhihu.trackInterval', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify' }
+  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', trackInterval: 'zhihu.trackInterval', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex' }
 
   let tab = 'hot'
   let timer = null
@@ -229,6 +245,10 @@
     try { localStorage.setItem(key, value) } catch { /* private mode */ }
   }
 
+  function linesOf(value) {
+    return String(value || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+  }
+
   function config() {
     return {
       secret: lsGet(LS.secret, ''),
@@ -240,6 +260,9 @@
       trackInterval: Number(lsGet(LS.trackInterval, '0')) || 0,
       autoBrief: lsGet(LS.autoBrief, '0') === '1',
       trackNotify: lsGet(LS.trackNotify, '1') === '1',
+      blockKeywords: linesOf(lsGet(LS.blockKeywords, '')),
+      blockAuthors: linesOf(lsGet(LS.blockAuthors, '')),
+      blockRegex: linesOf(lsGet(LS.blockRegex, '')),
     }
   }
 
@@ -330,12 +353,16 @@
 
   function renderList(entries, trend) {
     const box = $('content')
-    if (entries.length === 0) {
-      box.innerHTML = '<div class="empty">暂无数据</div>'
-      return
+    const filtered = applyContentFilter(entries)
+    const visible = filtered.kept
+    if (visible.length === 0) {
+      box.innerHTML = entries.length === 0
+        ? '<div class="empty">暂无数据</div>'
+        : `<div class="empty">当前 ${entries.length} 条都被过滤规则隐藏了。</div>`
+      return { shown: 0, blocked: filtered.blocked.length }
     }
     box.innerHTML = ''
-    entries.forEach((it, idx) => {
+    visible.forEach((it, idx) => {
       const card = document.createElement('div')
       card.className = 'card'
       const title = document.createElement('div')
@@ -402,6 +429,7 @@
       }
       box.appendChild(card)
     })
+    return { shown: visible.length, blocked: filtered.blocked.length }
   }
 
   /** 加载今日配额（热榜/直答剩余）。 */
@@ -487,9 +515,9 @@
     // 热榜趋势：对比上一次采样，标记新上榜 / 上升 / 下降。
     let trend = null
     if (tab === 'hot') trend = compareHotHistory(entries)
-    renderList(entries, trend)
+    const stats = renderList(entries, trend)
     const clock = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-    $('updated').textContent = `最近更新 ${clock} · ${entries.length} 条`
+    $('updated').textContent = `最近更新 ${clock} · ${stats.shown}/${entries.length} 条${filterStatusSuffix(stats.blocked)}`
     tabCache.set(tab, { html: $('content').innerHTML, updated: $('updated').textContent })
     schedule()
   }
@@ -605,6 +633,42 @@
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   }
 
+  function filterTextOf(it) {
+    return [it.title, it.summary, it.author, it.trackQuery].filter(Boolean).join('\n')
+  }
+
+  function filterReason(it, cfg = config()) {
+    const text = filterTextOf(it)
+    const lower = text.toLowerCase()
+    for (const author of cfg.blockAuthors) {
+      if (it.author && String(it.author).trim() === author) return `屏蔽作者：${author}`
+    }
+    for (const kw of cfg.blockKeywords) {
+      if (lower.includes(kw.toLowerCase())) return `关键词：${kw}`
+    }
+    for (const pattern of cfg.blockRegex) {
+      try {
+        if (new RegExp(pattern, 'i').test(text)) return `正则：${pattern}`
+      } catch { /* ignore invalid regex */ }
+    }
+    return ''
+  }
+
+  function applyContentFilter(items, cfg = config()) {
+    const kept = []
+    const blocked = []
+    for (const it of items) {
+      const reason = filterReason(it, cfg)
+      if (reason) blocked.push({ item: it, reason })
+      else kept.push(it)
+    }
+    return { kept, blocked }
+  }
+
+  function filterStatusSuffix(blocked) {
+    return blocked.length > 0 ? ` · 已过滤 ${blocked.length} 条` : ''
+  }
+
   // ── 帖子追踪：每个追踪项保存 {id, query, seen: {contentId: 1}}，搜索后用
   // ContentID 去重，未见过的新结果标 "NEW"。
 
@@ -705,10 +769,19 @@
       return
     }
     hideBanner()
-    const items = Array.isArray(payload.Data?.Items) ? payload.Data.Items : []
-    $('status').textContent = `共关注 ${items.length} 人`
+    const rawItems = Array.isArray(payload.Data?.Items) ? payload.Data.Items : []
+    const filtered = applyContentFilter(rawItems.map((it) => ({
+      raw: it,
+      title: it.Name || '(未知用户)',
+      summary: it.Headline || '',
+      author: it.Name || '',
+    })))
+    const items = filtered.kept.map((it) => it.raw)
+    $('status').textContent = `共关注 ${items.length}/${rawItems.length} 人${filterStatusSuffix(filtered.blocked)}`
     if (items.length === 0) {
-      box.innerHTML = '<div class="empty">暂无关注的人</div>'
+      box.innerHTML = rawItems.length === 0
+        ? '<div class="empty">暂无关注的人</div>'
+        : '<div class="empty">关注列表都被过滤规则隐藏了。</div>'
       return
     }
     box.innerHTML = ''
@@ -866,10 +939,20 @@
       detail.innerHTML = `<div class="empty">${escapeHtml(payload.error || '无法加载内容')}</div>`
       return 0
     }
-    const items = Array.isArray(payload.Data?.Items) ? payload.Data.Items : []
-    count.textContent = `${items.length} 条`
+    const rawItems = Array.isArray(payload.Data?.Items) ? payload.Data.Items : []
+    const filtered = applyContentFilter(rawItems.map((it) => ({
+      raw: it,
+      title: it.Title || '(无标题)',
+      url: it.Url || '#',
+      summary: String(it.Summary || it.ContentText || ''),
+      author: it.Author?.Name || '',
+    })))
+    const items = filtered.kept.map((it) => it.raw)
+    count.textContent = `${items.length}/${rawItems.length} 条${filterStatusSuffix(filtered.blocked)}`
     if (items.length === 0) {
-      detail.innerHTML = '<div class="empty">这个收藏夹还没有内容。</div>'
+      detail.innerHTML = rawItems.length === 0
+        ? '<div class="empty">这个收藏夹还没有内容。</div>'
+        : '<div class="empty">这个收藏夹的内容都被过滤规则隐藏了。</div>'
       return 0
     }
     detail.innerHTML = ''
@@ -921,11 +1004,16 @@
   function renderUnread() {
     const box = $('content')
     const items = readUnreadItems()
-    if (items.length === 0) {
-      box.innerHTML = '<div class="empty">没有未读的新内容。</div>'
+    const filtered = applyContentFilter(items)
+    const visible = filtered.kept
+    if (visible.length === 0) {
+      box.innerHTML = items.length === 0
+        ? '<div class="empty">没有未读的新内容。</div>'
+        : '<div class="empty">未读内容都被过滤规则隐藏了。</div>'
+      $('status').textContent = items.length === 0 ? '没有未读' : `已过滤 ${filtered.blocked.length} 条未读内容`
       return
     }
-    $('status').textContent = `${items.length} 条未读新内容`
+    $('status').textContent = `${visible.length}/${items.length} 条未读新内容${filterStatusSuffix(filtered.blocked)}`
     box.innerHTML = ''
     const head = document.createElement('div')
     head.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:10px'
@@ -935,7 +1023,7 @@
     clear.addEventListener('click', () => { clearUnread(); renderUnread() })
     head.appendChild(clear)
     box.appendChild(head)
-    items.forEach((it) => {
+    visible.forEach((it) => {
       const card = document.createElement('div')
       card.className = 'card new-card'
       const title = document.createElement('div')
@@ -1008,15 +1096,20 @@
   /** Render the persisted track list with per-track states and surface fresh posts inline. */
   function renderTrackList() {
     const listEl = $('track-list')
-    const tracks = readTracks().sort((a, b) => (b.lastNew || 0) - (a.lastNew || 0) || (b.checkedAt || 0) - (a.checkedAt || 0))
+    const tracks = readTracks()
+      .map((t) => ({
+        track: t,
+        fresh: applyContentFilter(Array.isArray(t.lastItems) ? t.lastItems.filter((it) => it.isNew) : []).kept,
+      }))
+      .sort((a, b) => b.fresh.length - a.fresh.length || (b.track.checkedAt || 0) - (a.track.checkedAt || 0))
     if (tracks.length === 0) {
       listEl.innerHTML = '<div class="track-empty">还没有追踪项 —— 添加一个你关注的问题/话题，有新回答或新创意时会标 NEW。</div>'
       return
     }
     listEl.innerHTML = ''
-    tracks.forEach((t) => {
+    tracks.forEach(({ track: t, fresh }) => {
       const card = document.createElement('div')
-      card.className = 'card' + ((t.lastNew || 0) > 0 ? ' new-card' : '')
+      card.className = 'card' + (fresh.length > 0 ? ' new-card' : '')
       const head = document.createElement('div')
       head.className = 'track-head'
       const query = document.createElement('span')
@@ -1035,10 +1128,10 @@
         ptag.textContent = '👤 关注的人'
         head.appendChild(ptag)
       }
-      if (t.lastNew > 0) {
+      if (fresh.length > 0) {
         const badge = document.createElement('span')
         badge.className = 'badge-new'
-        badge.textContent = `${t.lastNew} 新增`
+        badge.textContent = `${fresh.length} 新增`
         head.appendChild(badge)
       }
       if (t.brief) {
@@ -1055,7 +1148,6 @@
       meta.textContent = t.checkedAt ? `上次检查 ${new Date(t.checkedAt).toLocaleString('zh-CN', { hour12: false })}` : '尚未检查'
       head.appendChild(meta)
       card.appendChild(head)
-      const fresh = Array.isArray(t.lastItems) ? t.lastItems.filter((it) => it.isNew) : []
       if (fresh.length > 0) {
         const freshBox = document.createElement('div')
         freshBox.className = 'track-new-items'
@@ -1182,14 +1274,17 @@
       const name = String(track.query || '').trim()
       items = items.filter((it) => String(it.AuthorName || '').trim() === name)
     }
+    const normalizedItems = items.map((it) => ({
+      title: it.Title || '', url: it.Url || '', author: it.AuthorName || '',
+      summary: it.ContentText || '', cid: String(it.ContentID || ''), isNew: !isFirstCheck && !before.has(String(it.ContentID || '')),
+    }))
+    const visibleItems = applyContentFilter(normalizedItems).kept
     const seenNow = {}
-    let newCount = 0
-    for (const it of items) {
-      const cid = String(it.ContentID || '')
-      if (!cid) continue
-      seenNow[cid] = true
-      if (!before.has(cid)) newCount++
+    for (const it of normalizedItems) {
+      const cid = String(it.cid || '')
+      if (cid) seenNow[cid] = true
     }
+    let newCount = visibleItems.filter((it) => it.isNew).length
     // First check only establishes the baseline: nothing is "new" yet.
     if (isFirstCheck) newCount = 0
     // Persist: keep prior seen (in case search misses some) and add current.
@@ -1201,10 +1296,7 @@
       cur.checkedAt = Date.now()
       cur.lastNew = newCount
       // Keep the newest items for display when the user expands.
-      cur.lastItems = items.map((it) => ({
-        title: it.Title || '', url: it.Url || '', author: it.AuthorName || '',
-        summary: it.ContentText || '', cid: String(it.ContentID || ''), isNew: !isFirstCheck && !before.has(String(it.ContentID || '')),
-      }))
+      cur.lastItems = visibleItems
       writeTracks(list)
     }
     // Auto-brief: when new content appeared and the toggle is on, distill it
@@ -1343,6 +1435,9 @@
     $('trackInterval').value = cfg.trackInterval
     $('autoBrief').checked = cfg.autoBrief
     $('trackNotify').checked = cfg.trackNotify
+    $('blockKeywords').value = cfg.blockKeywords.join('\n')
+    $('blockAuthors').value = cfg.blockAuthors.join('\n')
+    $('blockRegex').value = cfg.blockRegex.join('\n')
     $('settings').classList.add('open')
   }
 
@@ -1356,6 +1451,10 @@
     lsSet(LS.trackInterval, String(Math.max(Number($('trackInterval').value) || 0, 0)))
     lsSet(LS.autoBrief, $('autoBrief').checked ? '1' : '0')
     lsSet(LS.trackNotify, $('trackNotify').checked ? '1' : '0')
+    lsSet(LS.blockKeywords, $('blockKeywords').value.trim())
+    lsSet(LS.blockAuthors, $('blockAuthors').value.trim())
+    lsSet(LS.blockRegex, $('blockRegex').value.trim())
+    tabCache.clear()
     $('settings').classList.remove('open')
     load()
   }

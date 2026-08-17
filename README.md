@@ -15,6 +15,7 @@ Built on the official [zhihu-cli](https://developer.zhihu.com/zhihu-cli) (知乎
 - **帖子追踪 (Post tracking)** — watch a **question** (all its answers), a **keyword** (similar new content), or a **person** (their new posts, author-filtered). New content is flagged `NEW` and surfaced inline under the tracked item immediately, so you do not need to hunt for it; optional **auto-brief** distills newly found posts into app-idea briefs via Zhihu Zhida; optional **system notifications + a sidebar unread badge** — the background checker runs in the DSH top window, so you get alerted **while using DSH, without opening the panel**
 - **收藏夹 (Favorites)** — browse collections with each collection's content shown inline immediately (title/summary/link/collect time/likes)
 - **未读 (Unread)** — an aggregated feed of everything newly found across your tracks (source track / author / time / summary); the sidebar badge jumps straight to it, with one-click mark-all-read
+- **Local content filters** — browser-local keyword, author, and regex block rules apply across hot list, feed, favorites, unread, and tracked-post checks; filtered items do not create `NEW` notifications or auto-briefs
 - Access Secret and limits are configured in the panel's own Settings dialog (stored in browser `localStorage` only)
 
 ### Agent tools (conversation)
@@ -47,7 +48,7 @@ Or add it to your profile's `cordis.patch.yml` bundle layer. Restart `dsh web`.
 
 ## How it works
 
-- **Host half** (`lib/`): serves `/zhihu-dashboard` routes behind the same Host/Origin trust fence as the DSH API gateway, drives the zhihu-cli binary, and registers the five agent tools via `ctx.tools.register`
+- **Host half** (`lib/`): serves `/zhihu-dashboard` routes behind the same Host/Origin trust fence as the DSH API gateway, drives the zhihu-cli binary, and registers the seven agent tools via `ctx.tools.register`
 - **Client half** (`src/client/`, bundled to `client/client.js`): a **知乎面板** button in the official sidebar foot (`sidebar.footer.action`) opens a right-hand drawer (`shell.overlay`) embedding the panel — global, shared across sessions, no third-party sidebar dependency; it also mounts the **background track checker** (`track-checker.ts`, running with the DSH top window) which checks tracked items on a schedule and raises system notifications / the sidebar unread badge when something new appears
 
 ## Configuration
@@ -59,7 +60,7 @@ Or add it to your profile's `cordis.patch.yml` bundle layer. Restart `dsh web`.
 | `feedLimit` | 10 | Feed item count (1-50) |
 | `refreshSeconds` | 0 | Auto-refresh for hot/feed (0 = off) |
 
-Panel-only options (browser localStorage): Access Secret, track-check interval, auto-brief toggle, system-notification toggle.
+Panel-only options (browser localStorage): Access Secret, track-check interval, auto-brief toggle, system-notification toggle, and local block rules for keywords, authors, and regex patterns.
 
 Today's hot/Zhida quota is shown at the top of the panel so you don't silently run out.
 

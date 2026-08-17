@@ -10,6 +10,7 @@
  * - zhihu.trackNotify   : whether to fire system notifications
  * - zhihu.autoBrief     : whether to auto-distill briefs (zhida)
  * - zhihu.unread    : running unread counter for the sidebar badge
+ * - zhihu.blockKeywords / blockAuthors / blockRegex: browser-local filters honored before NEW notifications
  */
 
 const KEYS = {
@@ -20,6 +21,9 @@ const KEYS = {
   autoBrief: 'zhihu.autoBrief',
   unread: 'zhihu.unread',
   unreadItems: 'zhihu.unreadItems',
+  blockKeywords: 'zhihu.blockKeywords',
+  blockAuthors: 'zhihu.blockAuthors',
+  blockRegex: 'zhihu.blockRegex',
 }
 
 /** One unread item surfaced in the panel's 未读 tab. */
@@ -52,6 +56,38 @@ function lsGet(key: string): string | null {
 }
 function lsSet(key: string, value: string): void {
   try { localStorage.setItem(key, value) } catch { /* private mode */ }
+}
+
+function linesOf(value: string | null): string[] {
+  return String(value ?? '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+}
+
+interface FilterableItem {
+  title?: string
+  summary?: string
+  author?: string
+  trackQuery?: string
+}
+
+function filterTextOf(item: FilterableItem): string {
+  return [item.title, item.summary, item.author, item.trackQuery].filter(Boolean).join('\n')
+}
+
+function isFiltered(item: FilterableItem): boolean {
+  const text = filterTextOf(item)
+  const lower = text.toLowerCase()
+  for (const author of linesOf(lsGet(KEYS.blockAuthors))) {
+    if (item.author && String(item.author).trim() === author) return true
+  }
+  for (const keyword of linesOf(lsGet(KEYS.blockKeywords))) {
+    if (lower.includes(keyword.toLowerCase())) return true
+  }
+  for (const pattern of linesOf(lsGet(KEYS.blockRegex))) {
+    try {
+      if (new RegExp(pattern, 'i').test(text)) return true
+    } catch { /* invalid user regex */ }
+  }
+  return false
 }
 
 function readTracks(): Track[] {
@@ -136,14 +172,18 @@ async function checkOne(track: Track, secret: string, autoBrief: boolean): Promi
     const name = String(track.query ?? '').trim()
     items = items.filter((it) => String(it.AuthorName ?? '').trim() === name)
   }
+  const normalizedItems = items.map((it) => ({
+    title: it.Title ?? '', url: it.Url ?? '', author: it.AuthorName ?? '',
+    summary: it.ContentText ?? '', cid: String(it.ContentID ?? ''),
+    isNew: !isFirstCheck && !before.has(String(it.ContentID ?? '')),
+  }))
+  const lastItems = normalizedItems.filter((it) => !isFiltered(it))
   const seenNow: Record<string, boolean> = {}
-  let newCount = 0
-  for (const it of items) {
-    const cid = String(it.ContentID ?? '')
-    if (!cid) continue
-    seenNow[cid] = true
-    if (!before.has(cid)) newCount++
+  for (const it of normalizedItems) {
+    const cid = String(it.cid ?? '')
+    if (cid) seenNow[cid] = true
   }
+  let newCount = lastItems.filter((it) => it.isNew).length
   if (isFirstCheck) newCount = 0
   // Persist merged state back into the shared store.
   const list = readTracks()
@@ -152,11 +192,6 @@ async function checkOne(track: Track, secret: string, autoBrief: boolean): Promi
     cur.seen = { ...(cur.seen ?? {}), ...seenNow }
     cur.checkedAt = Date.now()
     cur.lastNew = newCount
-    const lastItems = items.map((it) => ({
-      title: it.Title ?? '', url: it.Url ?? '', author: it.AuthorName ?? '',
-      summary: it.ContentText ?? '', cid: String(it.ContentID ?? ''),
-      isNew: !isFirstCheck && !before.has(String(it.ContentID ?? '')),
-    }))
     cur.lastItems = lastItems
     writeTracks(list)
     // Queue newly found items into the unread feed (panel's 未读 tab).
