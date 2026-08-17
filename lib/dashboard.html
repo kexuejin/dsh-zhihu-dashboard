@@ -90,6 +90,12 @@
   .rank { color: var(--accent2); font-weight: 700; margin-right: 4px; }
   .thumb { border-radius: 8px; margin: 6px 0 0; max-height: 120px; object-fit: cover; }
   .tag { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+  .fav-card { margin-bottom: 14px; }
+  .fav-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .fav-head .title { flex: 1; }
+  .fav-head .meta { margin: 0; }
+  .fav-detail { margin-top: 8px; }
+  .fav-detail .fav-item { margin-bottom: 8px; padding: 10px 12px; }
   .updated { font-size: 11px; color: var(--muted); text-align: center; margin-top: 18px; }
   .badge-new {
     display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
@@ -757,7 +763,7 @@
     })
   }
 
-  /** 收藏夹 tab：列出我的收藏夹，点击展开内容。 */
+  /** 收藏夹 tab：列出我的收藏夹，并直接内联加载每个收藏夹的内容（无需点击）。 */
   async function renderFavLists() {
     const box = $('content')
     box.innerHTML = '<div class="empty">加载收藏夹…</div>'
@@ -779,109 +785,114 @@
     }
     hideBanner()
     const items = Array.isArray(payload.Data?.Items) ? payload.Data.Items : []
-    $('status').textContent = `共 ${items.length} 个收藏夹`
+    $('status').textContent = `共 ${items.length} 个收藏夹，内容正在加载…`
     if (items.length === 0) {
       box.innerHTML = '<div class="empty">暂无收藏夹 —— 在知乎 App/网页收藏内容后会出现在这里。</div>'
       return
     }
     box.innerHTML = ''
+    const secret2 = secret
+    let loadedLists = 0
+    let loadedItems = 0
+    const updateFavStatus = () => {
+      $('status').textContent = loadedLists === items.length
+        ? `共 ${items.length} 个收藏夹，${loadedItems} 条内容`
+        : `共 ${items.length} 个收藏夹，已加载 ${loadedLists}/${items.length}`
+    }
     items.forEach((it) => {
+      const token = String(it.UrlToken ?? it.Url ?? '')
       const card = document.createElement('div')
-      card.className = 'card'
-      const title = document.createElement('div')
+      card.className = 'card fav-card'
+      const head = document.createElement('div')
+      head.className = 'fav-head'
+      const title = document.createElement('span')
       title.className = 'title'
       title.textContent = it.Title || '(未命名收藏夹)'
-      card.appendChild(title)
+      head.appendChild(title)
+      if (it.IsPublic !== undefined) {
+        const tag = document.createElement('span')
+        tag.className = 'tag'
+        tag.textContent = it.IsPublic ? '公开' : '私密'
+        head.appendChild(tag)
+      }
+      const count = document.createElement('span')
+      count.className = 'meta'
+      count.textContent = '…'
+      head.appendChild(count)
+      card.appendChild(head)
       if (it.Description) {
         const desc = document.createElement('div')
         desc.className = 'summary'
         desc.textContent = it.Description
         card.appendChild(desc)
       }
-      const actions = document.createElement('div')
-      actions.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:8px'
-      const open = document.createElement('button')
-      open.className = 'ghost'
-      open.textContent = '查看内容'
-      const token = String(it.UrlToken ?? it.Url ?? '')
-      open.addEventListener('click', () => renderFavItems(token, it.Title || ''))
-      actions.appendChild(open)
-      if (it.IsPublic !== undefined) {
-        const tag = document.createElement('span')
-        tag.className = 'tag'
-        tag.textContent = it.IsPublic ? '公开' : '私密'
-        actions.appendChild(tag)
-      }
-      card.appendChild(actions)
+      const detail = document.createElement('div')
+      detail.className = 'fav-detail'
+      detail.innerHTML = '<div class="empty">加载中…</div>'
+      card.appendChild(detail)
       box.appendChild(card)
+      if (token !== '') {
+        renderFavItems(detail, count, token, secret2).then((loaded) => {
+          loadedLists += 1
+          loadedItems += loaded
+          updateFavStatus()
+        })
+      } else {
+        count.textContent = ''
+        detail.innerHTML = '<div class="empty">缺少 URL Token，无法加载内容。</div>'
+        loadedLists += 1
+        updateFavStatus()
+      }
     })
   }
 
-  /** 渲染单个收藏夹的内容。 */
-  async function renderFavItems(token, listName) {
-    if (!token) return
-    const box = $('content')
-    box.innerHTML = `
-      <div class="card">
-        <div class="track-head">
-          <span class="query">${escapeHtml(listName)}</span>
-          <button class="ghost" id="fav-back">← 返回</button>
-        </div>
-      </div>
-      <div id="fav-detail"></div>
-    `
-    const detail = $('fav-detail')
-    detail.innerHTML = '<div class="empty">加载中…</div>'
-    $('status').textContent = '加载中…'
-    const secret = config().secret
+  /** 渲染单个收藏夹的内容，直接填充到已挂载的 detail 容器。 */
+  async function renderFavItems(detail, count, token, secret) {
     let payload
     try {
       payload = await fetchJson(`/zhihu-dashboard/api/favitems?token=${encodeURIComponent(token)}&limit=50`, secret)
     } catch (error) {
-      $('status').textContent = '加载失败'
-      showBanner(String(error.message || error))
-      return
+      detail.innerHTML = `<div class="empty">加载失败：${escapeHtml(String(error.message || error))}</div>`
+      return 0
     }
     if (payload.ok === false) {
-      $('status').textContent = '加载失败'
-      showBanner(payload.error || '加载失败', payload.actionUrl)
-      detail.innerHTML = '<div class="empty">无法加载内容</div>'
-      return
+      detail.innerHTML = `<div class="empty">${escapeHtml(payload.error || '无法加载内容')}</div>`
+      return 0
     }
-    hideBanner()
     const items = Array.isArray(payload.Data?.Items) ? payload.Data.Items : []
-    $('status').textContent = `共 ${items.length} 条`
+    count.textContent = `${items.length} 条`
     if (items.length === 0) {
       detail.innerHTML = '<div class="empty">这个收藏夹还没有内容。</div>'
-    } else {
-      items.forEach((it) => {
-        const card = document.createElement('div')
-        card.className = 'card'
-        const title = document.createElement('div')
-        title.className = 'title'
-        const a = document.createElement('a')
-        a.href = it.Url || '#'
-        a.target = '_blank'
-        a.rel = 'noreferrer'
-        a.textContent = it.Title || '(无标题)'
-        title.appendChild(a)
-        card.appendChild(title)
-        const meta = document.createElement('div')
-        meta.className = 'meta'
-        if (it.Author?.Name) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `@ ${it.Author.Name}` }))
-        if (it.FavTime) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `收藏于 ${new Date(it.FavTime * 1000).toLocaleDateString('zh-CN')}` }))
-        if (it.LikeCount) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `👍 ${it.LikeCount}` }))
-        card.appendChild(meta)
-        if (it.Summary || it.ContentText) {
-          const summary = document.createElement('div')
-          summary.className = 'summary'
-          summary.textContent = String(it.Summary || it.ContentText).replace(/<[^>]*>/g, '').slice(0, 300)
-          card.appendChild(summary)
-        }
-        detail.appendChild(card)
-      })
+      return 0
     }
-    $('fav-back').addEventListener('click', () => renderFavLists())
+    detail.innerHTML = ''
+    items.forEach((it) => {
+      const card = document.createElement('div')
+      card.className = 'card fav-item'
+      const title = document.createElement('div')
+      title.className = 'title'
+      const a = document.createElement('a')
+      a.href = it.Url || '#'
+      a.target = '_blank'
+      a.rel = 'noreferrer'
+      a.textContent = it.Title || '(无标题)'
+      title.appendChild(a)
+      card.appendChild(title)
+      const meta = document.createElement('div')
+      meta.className = 'meta'
+      if (it.Author?.Name) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `@ ${it.Author.Name}` }))
+      if (it.FavTime) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `收藏于 ${new Date(it.FavTime * 1000).toLocaleDateString('zh-CN')}` }))
+      if (it.LikeCount) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `👍 ${it.LikeCount}` }))
+      card.appendChild(meta)
+      if (it.Summary || it.ContentText) {
+        const summary = document.createElement('div')
+        summary.className = 'summary'
+        summary.textContent = String(it.Summary || it.ContentText).replace(/<[^>]*>/g, '').slice(0, 300)
+        card.appendChild(summary)
+      }
+      detail.appendChild(card)
+    })
+    return items.length
   }
 
   /** 未读 tab：聚合所有追踪项新发现的内容，查看后清零。 */
