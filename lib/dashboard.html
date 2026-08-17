@@ -48,6 +48,7 @@
     cursor: pointer; font-size: 13px;
   }
   button.ghost:hover { border-color: var(--accent); }
+  button.ghost:disabled { opacity: .45; cursor: not-allowed; border-color: var(--border); }
   .status { font-size: 12px; color: var(--muted); max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   main { max-width: 860px; margin: 0 auto; padding: 16px; }
   .card {
@@ -128,6 +129,8 @@
   <div class="spacer"></div>
   <div class="status" id="quota" style="color:var(--muted);max-width:none;white-space:nowrap"></div>
   <div class="status" id="status">加载中…</div>
+  <button class="ghost" id="copy-md">复制研究包</button>
+  <button class="ghost" id="copy-csv">复制 CSV</button>
   <button class="ghost" id="refresh">刷新</button>
   <button class="ghost" id="open-settings">设置</button>
 </header>
@@ -237,12 +240,75 @@
   let forcedRefresh = false
   /** 后台刷新标记：静默更新，不闪状态栏。 */
   let isBackgroundRefresh = false
+  let exportState = { title: '知乎面板', items: [] }
 
   function lsGet(key, fallback) {
     try { const v = localStorage.getItem(key); return v === null ? fallback : v } catch { return fallback }
   }
   function lsSet(key, value) {
     try { localStorage.setItem(key, value) } catch { /* private mode */ }
+  }
+
+  function setExportState(title, items) {
+    exportState = { title, items: Array.isArray(items) ? items : [] }
+    const disabled = exportState.items.length === 0
+    $('copy-md').disabled = disabled
+    $('copy-csv').disabled = disabled
+  }
+
+  function normalizeExportItem(it, source = '') {
+    return {
+      source: it.source || source || '',
+      title: it.title || it.Title || it.Name || '(无标题)',
+      author: it.author || it.AuthorName || it.Author?.Name || '',
+      summary: String(it.summary || it.Summary || it.ContentText || it.Headline || '').replace(/<[^>]*>/g, '').trim(),
+      url: it.url || it.Url || '',
+      time: it.time || it.FavTime || it.foundAt || '',
+      likes: it.likes || it.LikeCount || '',
+    }
+  }
+
+  function markdownForExport(state = exportState) {
+    const stamp = new Date().toLocaleString('zh-CN', { hour12: false })
+    const lines = [`# ${state.title}`, '', `生成时间：${stamp}`, `条目数：${state.items.length}`, '']
+    state.items.map((it) => normalizeExportItem(it)).forEach((it, idx) => {
+      lines.push(`## ${idx + 1}. ${it.title}`)
+      if (it.source) lines.push(`- 来源：${it.source}`)
+      if (it.author) lines.push(`- 作者：${it.author}`)
+      if (it.url) lines.push(`- 链接：${it.url}`)
+      if (it.time) lines.push(`- 时间：${typeof it.time === 'number' ? new Date(it.time > 1e12 ? it.time : it.time * 1000).toLocaleString('zh-CN', { hour12: false }) : it.time}`)
+      if (it.likes) lines.push(`- 点赞：${it.likes}`)
+      if (it.summary) lines.push('', it.summary)
+      lines.push('')
+    })
+    return lines.join('\n')
+  }
+
+  function csvEscape(value) {
+    return `"${String(value ?? '').replace(/"/g, '""')}"`
+  }
+
+  function csvForExport(state = exportState) {
+    const header = ['source', 'title', 'author', 'summary', 'url', 'time', 'likes']
+    const rows = state.items.map((it) => normalizeExportItem(it)).map((it) => header.map((key) => csvEscape(it[key])).join(','))
+    return [header.join(','), ...rows].join('\n')
+  }
+
+  async function copyText(text, label) {
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      $('status').textContent = `已复制${label}`
+    } catch {
+      const area = document.createElement('textarea')
+      area.value = text
+      area.style.cssText = 'position:fixed;left:-9999px;top:-9999px'
+      document.body.appendChild(area)
+      area.select()
+      document.execCommand('copy')
+      area.remove()
+      $('status').textContent = `已复制${label}`
+    }
   }
 
   function linesOf(value) {
@@ -359,6 +425,7 @@
       box.innerHTML = entries.length === 0
         ? '<div class="empty">暂无数据</div>'
         : `<div class="empty">当前 ${entries.length} 条都被过滤规则隐藏了。</div>`
+      setExportState(tab === 'hot' ? '知乎热榜研究包' : '知乎关注动态研究包', [])
       return { shown: 0, blocked: filtered.blocked.length }
     }
     box.innerHTML = ''
@@ -429,6 +496,7 @@
       }
       box.appendChild(card)
     })
+    setExportState(tab === 'hot' ? '知乎热榜研究包' : '知乎关注动态研究包', visible.map((it, idx) => Object.assign({ source: tab === 'hot' ? `热榜 #${idx + 1}` : '关注动态' }, it)))
     return { shown: visible.length, blocked: filtered.blocked.length }
   }
 
@@ -468,6 +536,7 @@
     if (cached !== undefined && !forcedRefresh) {
       $('content').innerHTML = cached.html
       $('updated').textContent = cached.updated
+      if (cached.exportState) setExportState(cached.exportState.title, cached.exportState.items)
       // 后台刷新（不阻塞显示）
       void refreshTab(tab)
       return
@@ -518,7 +587,7 @@
     const stats = renderList(entries, trend)
     const clock = new Date().toLocaleTimeString('zh-CN', { hour12: false })
     $('updated').textContent = `最近更新 ${clock} · ${stats.shown}/${entries.length} 条${filterStatusSuffix(stats.blocked)}`
-    tabCache.set(tab, { html: $('content').innerHTML, updated: $('updated').textContent })
+    tabCache.set(tab, { html: $('content').innerHTML, updated: $('updated').textContent, exportState: { title: exportState.title, items: exportState.items } })
     schedule()
   }
 
@@ -782,9 +851,17 @@
       box.innerHTML = rawItems.length === 0
         ? '<div class="empty">暂无关注的人</div>'
         : '<div class="empty">关注列表都被过滤规则隐藏了。</div>'
+      setExportState('知乎关注的人研究包', [])
       return
     }
     box.innerHTML = ''
+    setExportState('知乎关注的人研究包', items.map((it) => normalizeExportItem({
+      source: '关注的人',
+      title: it.Name || '(未知用户)',
+      summary: it.Headline || '',
+      url: it.Url || '',
+      likes: it.FollowerCount || '',
+    })))
     items.forEach((it) => {
       const card = document.createElement('div')
       card.className = 'card'
@@ -868,12 +945,14 @@
     $('status').textContent = `共 ${items.length} 个收藏夹，内容正在加载…`
     if (items.length === 0) {
       box.innerHTML = '<div class="empty">暂无收藏夹 —— 在知乎 App/网页收藏内容后会出现在这里。</div>'
+      setExportState('知乎收藏夹研究包', [])
       return
     }
     box.innerHTML = ''
     const secret2 = secret
     let loadedLists = 0
     let loadedItems = 0
+    const exportItems = []
     const updateFavStatus = () => {
       $('status').textContent = loadedLists === items.length
         ? `共 ${items.length} 个收藏夹，${loadedItems} 条内容`
@@ -912,32 +991,35 @@
       card.appendChild(detail)
       box.appendChild(card)
       if (token !== '') {
-        renderFavItems(detail, count, token, secret2).then((loaded) => {
+        renderFavItems(detail, count, token, secret2, it.Title || '(未命名收藏夹)').then((loaded) => {
           loadedLists += 1
-          loadedItems += loaded
+          loadedItems += loaded.count
+          exportItems.push(...loaded.items)
+          setExportState('知乎收藏夹研究包', exportItems)
           updateFavStatus()
         })
       } else {
         count.textContent = ''
         detail.innerHTML = '<div class="empty">缺少 URL Token，无法加载内容。</div>'
         loadedLists += 1
+        setExportState('知乎收藏夹研究包', exportItems)
         updateFavStatus()
       }
     })
   }
 
   /** 渲染单个收藏夹的内容，直接填充到已挂载的 detail 容器。 */
-  async function renderFavItems(detail, count, token, secret) {
+  async function renderFavItems(detail, count, token, secret, listTitle = '收藏夹') {
     let payload
     try {
       payload = await fetchJson(`/zhihu-dashboard/api/favitems?token=${encodeURIComponent(token)}&limit=50`, secret)
     } catch (error) {
       detail.innerHTML = `<div class="empty">加载失败：${escapeHtml(String(error.message || error))}</div>`
-      return 0
+      return { count: 0, items: [] }
     }
     if (payload.ok === false) {
       detail.innerHTML = `<div class="empty">${escapeHtml(payload.error || '无法加载内容')}</div>`
-      return 0
+      return { count: 0, items: [] }
     }
     const rawItems = Array.isArray(payload.Data?.Items) ? payload.Data.Items : []
     const filtered = applyContentFilter(rawItems.map((it) => ({
@@ -953,8 +1035,17 @@
       detail.innerHTML = rawItems.length === 0
         ? '<div class="empty">这个收藏夹还没有内容。</div>'
         : '<div class="empty">这个收藏夹的内容都被过滤规则隐藏了。</div>'
-      return 0
+      return { count: 0, items: [] }
     }
+    const exportItems = items.map((it) => normalizeExportItem({
+      source: listTitle,
+      title: it.Title || '(无标题)',
+      url: it.Url || '',
+      summary: String(it.Summary || it.ContentText || ''),
+      author: it.Author?.Name || '',
+      time: it.FavTime || '',
+      likes: it.LikeCount || '',
+    }))
     detail.innerHTML = ''
     items.forEach((it) => {
       const card = document.createElement('div')
@@ -982,7 +1073,7 @@
       }
       detail.appendChild(card)
     })
-    return items.length
+    return { count: items.length, items: exportItems }
   }
 
   /** 未读 tab：聚合所有追踪项新发现的内容，查看后清零。 */
@@ -1011,9 +1102,11 @@
         ? '<div class="empty">没有未读的新内容。</div>'
         : '<div class="empty">未读内容都被过滤规则隐藏了。</div>'
       $('status').textContent = items.length === 0 ? '没有未读' : `已过滤 ${filtered.blocked.length} 条未读内容`
+      setExportState('知乎未读研究包', [])
       return
     }
     $('status').textContent = `${visible.length}/${items.length} 条未读新内容${filterStatusSuffix(filtered.blocked)}`
+    setExportState('知乎未读研究包', visible.map((it) => normalizeExportItem(Object.assign({ source: it.trackQuery ? `追踪：${it.trackQuery}` : '未读' }, it))))
     box.innerHTML = ''
     const head = document.createElement('div')
     head.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:10px'
@@ -1104,8 +1197,11 @@
       .sort((a, b) => b.fresh.length - a.fresh.length || (b.track.checkedAt || 0) - (a.track.checkedAt || 0))
     if (tracks.length === 0) {
       listEl.innerHTML = '<div class="track-empty">还没有追踪项 —— 添加一个你关注的问题/话题，有新回答或新创意时会标 NEW。</div>'
+      setExportState('知乎追踪新增研究包', [])
       return
     }
+    const allFresh = tracks.flatMap(({ track, fresh }) => fresh.map((it) => normalizeExportItem(Object.assign({ source: `追踪：${track.query}` }, it))))
+    setExportState('知乎追踪新增研究包', allFresh)
     listEl.innerHTML = ''
     tracks.forEach(({ track: t, fresh }) => {
       const card = document.createElement('div')
@@ -1338,7 +1434,8 @@
     // 用户查看了追踪内容 → 清空未读计数
     try { localStorage.setItem('zhihu.unread', '0') } catch { /* private mode */ }
     const box = $('content')
-    const items = [...track.lastItems].sort((a, b) => Number(Boolean(b.isNew)) - Number(Boolean(a.isNew)))
+    const items = applyContentFilter([...track.lastItems]).kept.sort((a, b) => Number(Boolean(b.isNew)) - Number(Boolean(a.isNew)))
+    setExportState(`知乎追踪「${track.query}」研究包`, items.map((it) => normalizeExportItem(Object.assign({ source: `追踪：${track.query}` }, it))))
     box.innerHTML = `
       <div class="card">
         <div class="track-head">
@@ -1466,6 +1563,10 @@
     tabCache.delete(tab)
     load()
   })
+  $('copy-md').addEventListener('click', () => copyText(markdownForExport(), '研究包'))
+  $('copy-csv').addEventListener('click', () => copyText(csvForExport(), 'CSV'))
+  $('copy-md').disabled = true
+  $('copy-csv').disabled = true
   $('open-settings').addEventListener('click', openSettings)
   $('close-settings').addEventListener('click', () => $('settings').classList.remove('open'))
   $('save-settings').addEventListener('click', saveSettings)
