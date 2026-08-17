@@ -287,7 +287,7 @@
 (() => {
   'use strict'
   const $ = (id) => document.getElementById(id)
-  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', workspaceItems: 'zhihu.workspaceItems', trackInterval: 'zhihu.trackInterval', trackLimit: 'zhihu.trackLimit', trackSinceHours: 'zhihu.trackSinceHours', trackContentType: 'zhihu.trackContentType', trackHistory: 'zhihu.trackHistory', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', localSortMode: 'zhihu.localSortMode', preferKeywords: 'zhihu.preferKeywords', favSearch: 'zhihu.favSearch', favSort: 'zhihu.favSort', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
+  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', workspaceItems: 'zhihu.workspaceItems', researchProjects: 'zhihu.researchProjects', trackInterval: 'zhihu.trackInterval', trackLimit: 'zhihu.trackLimit', trackSinceHours: 'zhihu.trackSinceHours', trackContentType: 'zhihu.trackContentType', trackHistory: 'zhihu.trackHistory', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', localSortMode: 'zhihu.localSortMode', preferKeywords: 'zhihu.preferKeywords', favSearch: 'zhihu.favSearch', favSort: 'zhihu.favSort', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
 
   let tab = 'hot'
   let timer = null
@@ -387,6 +387,67 @@
     renderWorkspace()
   }
 
+  function readResearchProjects() {
+    try {
+      const list = JSON.parse(lsGet(LS.researchProjects, '[]'))
+      return Array.isArray(list) ? list : []
+    } catch { return [] }
+  }
+
+  function writeResearchProjects(list) {
+    lsSet(LS.researchProjects, JSON.stringify(list.slice(0, 100)))
+  }
+
+  function analysisPromptFor(title, items) {
+    return [
+      `请作为产品/研究分析助手，基于下面的知乎研究包《${title}》输出结构化分析。`,
+      '',
+      '请包含：',
+      '1. 主题摘要：3-5 条要点。',
+      '2. 机会点：可做成产品、内容、运营或研究任务的方向。',
+      '3. 风险与反方观点：识别偏见、噪音、争议和不确定性。',
+      '4. 下一步行动：给出可执行清单。',
+      '',
+      markdownForExport({ title, items }),
+    ].join('\n')
+  }
+
+  function addResearchProject(name) {
+    const clean = String(name || '').trim()
+    if (!clean) return null
+    const now = Date.now()
+    const projects = readResearchProjects()
+    const existing = projects.find((p) => p.name === clean)
+    if (existing) return existing
+    const project = { id: String(now), name: clean, createdAt: now, updatedAt: now, items: [] }
+    projects.unshift(project)
+    writeResearchProjects(projects)
+    return project
+  }
+
+  function addItemToProject(raw) {
+    const projects = readResearchProjects()
+    const names = projects.map((p) => p.name).join(' / ')
+    const name = prompt(`加入哪个研究项目？${names ? `\n已有：${names}` : ''}`, projects[0]?.name || '')
+    if (name === null || name.trim() === '') return
+    const project = addResearchProject(name)
+    if (!project) return
+    const item = normalizeExportItem(raw)
+    const itemId = workspaceIdFor(item)
+    const list = readResearchProjects()
+    const target = list.find((p) => p.id === project.id)
+    if (!target) return
+    target.items = [Object.assign({}, item, { id: itemId, addedAt: Date.now() }), ...(target.items || []).filter((it) => (it.id || workspaceIdFor(it)) !== itemId)].slice(0, 300)
+    target.updatedAt = Date.now()
+    writeResearchProjects(list)
+    $('status').textContent = `已加入研究项目：${target.name}`
+  }
+
+  function removeResearchProject(id) {
+    writeResearchProjects(readResearchProjects().filter((p) => p.id !== id))
+    renderWorkspace()
+  }
+
   function appendWorkspaceActions(card, it) {
     const actions = document.createElement('div')
     actions.className = 'filter-actions'
@@ -401,6 +462,11 @@
       btn.addEventListener('click', () => addWorkspaceItem(it, status))
       actions.appendChild(btn)
     })
+    const project = document.createElement('button')
+    project.className = 'ghost'
+    project.textContent = '加入项目'
+    project.addEventListener('click', () => addItemToProject(it))
+    actions.appendChild(project)
     card.appendChild(actions)
   }
 
@@ -1486,19 +1552,94 @@
   function renderWorkspace() {
     const box = $('content')
     const items = sortContentItems(readWorkspaceItems())
+    const projects = readResearchProjects()
     setExportState('知乎工作台研究包', items)
-    if (items.length === 0) {
+    if (items.length === 0 && projects.length === 0) {
       $('status').textContent = '工作台为空'
-      box.innerHTML = '<div class="empty">还没有工作台内容。可在任意内容卡片点击“稍后读 / 待分析 / 已处理”。</div>'
+      box.innerHTML = '<div class="empty">还没有工作台内容。可在任意内容卡片点击“稍后读 / 待分析 / 已处理 / 加入项目”。</div>'
       return
     }
-    $('status').textContent = `工作台 ${items.length} 条`
+    $('status').textContent = `工作台 ${items.length} 条 · 项目 ${projects.length} 个`
     box.innerHTML = ''
     const summary = document.createElement('div')
     summary.className = 'card'
     const counts = ['later', 'analysis', 'done'].map((status) => [status, items.filter((it) => it.status === status).length])
-    summary.innerHTML = `<div class="title">内容工作台</div><div class="meta"><span>稍后读 ${counts[0][1]}</span><span>待分析 ${counts[1][1]}</span><span>已处理 ${counts[2][1]}</span></div><div class="hint">所有内容仅保存在本浏览器 localStorage，可用顶部“复制研究包 / CSV”导出。</div>`
+    summary.innerHTML = `<div class="title">内容工作台</div><div class="meta"><span>稍后读 ${counts[0][1]}</span><span>待分析 ${counts[1][1]}</span><span>已处理 ${counts[2][1]}</span><span>研究项目 ${projects.length}</span></div><div class="hint">所有内容仅保存在本浏览器 localStorage，可用顶部“复制研究包 / CSV”导出。</div>`
+    const projectControls = document.createElement('div')
+    projectControls.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:10px'
+    const nameInput = document.createElement('input')
+    nameInput.placeholder = '新建研究项目（如：AI 应用观察）'
+    nameInput.style.cssText = 'flex:1;min-width:220px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px'
+    const createBtn = document.createElement('button')
+    createBtn.className = 'ghost'
+    createBtn.textContent = '创建项目'
+    createBtn.addEventListener('click', () => {
+      const project = addResearchProject(nameInput.value)
+      if (!project) return
+      $('status').textContent = `已创建研究项目：${project.name}`
+      renderWorkspace()
+    })
+    const promptBtn = document.createElement('button')
+    promptBtn.className = 'ghost'
+    promptBtn.textContent = '复制工作台分析提示'
+    promptBtn.disabled = items.length === 0
+    promptBtn.addEventListener('click', () => copyText(analysisPromptFor('知乎工作台研究包', items), '工作台分析提示'))
+    projectControls.appendChild(nameInput)
+    projectControls.appendChild(createBtn)
+    projectControls.appendChild(promptBtn)
+    summary.appendChild(projectControls)
     box.appendChild(summary)
+
+    if (projects.length > 0) {
+      const projectHead = document.createElement('div')
+      projectHead.className = 'updated'
+      projectHead.style.textAlign = 'left'
+      projectHead.textContent = `研究项目（${projects.length}）`
+      box.appendChild(projectHead)
+      projects.forEach((project) => {
+        const projectItems = Array.isArray(project.items) ? project.items : []
+        const card = document.createElement('div')
+        card.className = 'card'
+        const title = document.createElement('div')
+        title.className = 'title'
+        title.textContent = project.name || '(未命名项目)'
+        card.appendChild(title)
+        const meta = document.createElement('div')
+        meta.className = 'meta'
+        meta.appendChild(Object.assign(document.createElement('span'), { textContent: `${projectItems.length} 条内容` }))
+        if (project.updatedAt) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `更新 ${new Date(project.updatedAt).toLocaleString('zh-CN', { hour12: false })}` }))
+        card.appendChild(meta)
+        projectItems.slice(0, 5).forEach((it) => {
+          const line = document.createElement('div')
+          line.className = 'summary'
+          line.style.webkitLineClamp = '1'
+          line.textContent = `· ${it.title || '(无标题)'}`
+          card.appendChild(line)
+        })
+        const actions = document.createElement('div')
+        actions.className = 'filter-actions'
+        const exportBtn = document.createElement('button')
+        exportBtn.className = 'ghost'
+        exportBtn.textContent = '复制项目 Markdown'
+        exportBtn.disabled = projectItems.length === 0
+        exportBtn.addEventListener('click', () => copyText(markdownForExport({ title: `研究项目：${project.name}`, items: projectItems }), '项目 Markdown'))
+        actions.appendChild(exportBtn)
+        const analyzeBtn = document.createElement('button')
+        analyzeBtn.className = 'ghost'
+        analyzeBtn.textContent = '复制 Agent 分析提示'
+        analyzeBtn.disabled = projectItems.length === 0
+        analyzeBtn.addEventListener('click', () => copyText(analysisPromptFor(`研究项目：${project.name}`, projectItems), 'Agent 分析提示'))
+        actions.appendChild(analyzeBtn)
+        const del = document.createElement('button')
+        del.className = 'ghost'
+        del.textContent = '删除项目'
+        del.addEventListener('click', () => { if (confirm(`删除研究项目「${project.name}」？`)) removeResearchProject(project.id) })
+        actions.appendChild(del)
+        card.appendChild(actions)
+        box.appendChild(card)
+      })
+    }
+
     ;[
       ['analysis', '待分析'],
       ['later', '稍后读'],
@@ -1542,6 +1683,11 @@
         read.textContent = '阅读'
         read.addEventListener('click', () => renderReadingView(it, renderWorkspace))
         actions.appendChild(read)
+        const addProject = document.createElement('button')
+        addProject.className = 'ghost'
+        addProject.textContent = '加入项目'
+        addProject.addEventListener('click', () => addItemToProject(it))
+        actions.appendChild(addProject)
         ;[
           ['later', '稍后读'],
           ['analysis', '待分析'],
