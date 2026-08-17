@@ -116,6 +116,7 @@
   .track-empty { text-align: center; color: var(--muted); padding: 24px 0; font-size: 13px; }
   .new-card { border-color: var(--ok); }
   .new-card .title a { color: var(--ok); }
+  .reader-body { white-space: pre-wrap; color: var(--text); font-size: 14px; line-height: 1.85; -webkit-line-clamp: unset; display: block; }
 </style>
 </head>
 <body>
@@ -341,6 +342,60 @@
     return [header.join(','), ...rows].join('\n')
   }
 
+  function readerMarkdownFor(item) {
+    return markdownForExport({ title: `知乎阅读：${item.title}`, items: [item] })
+  }
+
+  function renderReadingView(raw, onBack = () => load()) {
+    const item = normalizeExportItem(raw)
+    setExportState(`知乎阅读：${item.title}`, [item])
+    $('content').innerHTML = ''
+    const card = document.createElement('div')
+    card.className = 'card'
+    const top = document.createElement('div')
+    top.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap'
+    const back = document.createElement('button')
+    back.className = 'ghost'
+    back.textContent = '← 返回'
+    back.addEventListener('click', onBack)
+    top.appendChild(back)
+    if (item.url) {
+      const open = document.createElement('a')
+      open.href = item.url
+      open.target = '_blank'
+      open.rel = 'noreferrer'
+      open.className = 'ghost'
+      open.style.textDecoration = 'none'
+      open.textContent = '打开原文'
+      top.appendChild(open)
+    }
+    const copy = document.createElement('button')
+    copy.className = 'ghost'
+    copy.textContent = '复制本文 Markdown'
+    copy.addEventListener('click', () => copyText(readerMarkdownFor(item), '本文 Markdown'))
+    top.appendChild(copy)
+    card.appendChild(top)
+    const title = document.createElement('div')
+    title.className = 'title'
+    title.style.cssText = 'font-size:20px;line-height:1.45;margin-bottom:8px'
+    title.textContent = item.title
+    card.appendChild(title)
+    const meta = document.createElement('div')
+    meta.className = 'meta'
+    if (item.source) meta.appendChild(Object.assign(document.createElement('span'), { textContent: item.source }))
+    if (item.author) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `@ ${item.author}` }))
+    if (item.time) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `${typeof item.time === 'number' ? new Date(item.time > 1e12 ? item.time : item.time * 1000).toLocaleString('zh-CN', { hour12: false }) : item.time}` }))
+    if (item.likes) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `👍 ${item.likes}` }))
+    card.appendChild(meta)
+    const body = document.createElement('div')
+    body.className = 'reader-body'
+    body.textContent = item.summary || '当前接口只返回摘要。可打开原文继续阅读，或复制本文 Markdown 给 Agent 分析。'
+    card.appendChild(body)
+    $('content').appendChild(card)
+    $('updated').textContent = '阅读模式'
+    $('status').textContent = '阅读模式'
+  }
+
   async function copyText(text, label) {
     if (!text) return
     try {
@@ -461,6 +516,11 @@
   function appendFilterActions(card, it) {
     const actions = document.createElement('div')
     actions.className = 'filter-actions'
+    const read = document.createElement('button')
+    read.className = 'ghost'
+    read.textContent = '阅读'
+    read.addEventListener('click', () => renderReadingView(it))
+    actions.appendChild(read)
     if (it.author) {
       const author = document.createElement('button')
       author.className = 'ghost'
@@ -1105,7 +1165,7 @@
         meta.textContent = `粉丝 ${it.FollowerCount}`
         card.appendChild(meta)
       }
-      appendFilterActions(card, { title: it.Name || '', summary: it.Headline || '', author: it.Name || '' })
+      appendFilterActions(card, { title: it.Name || '', summary: it.Headline || '', author: it.Name || '', url: it.Url || '', likes: it.FollowerCount || '' })
       const trackBtn = document.createElement('button')
       trackBtn.className = 'ghost'
       trackBtn.textContent = '追踪 TA'
@@ -1282,7 +1342,7 @@
         summary.textContent = String(it.Summary || it.ContentText).replace(/<[^>]*>/g, '').slice(0, 300)
         card.appendChild(summary)
       }
-      appendFilterActions(card, { title: it.Title || '', summary: String(it.Summary || it.ContentText || ''), author: it.Author?.Name || '' })
+      appendFilterActions(card, { title: it.Title || '', summary: String(it.Summary || it.ContentText || ''), author: it.Author?.Name || '', url: it.Url || '', time: it.FavTime || '', likes: it.LikeCount || '' })
       detail.appendChild(card)
     })
     return { count: items.length, items: exportItems }
