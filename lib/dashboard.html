@@ -26,7 +26,7 @@
   }
   header {
     position: sticky; top: 0; z-index: 10;
-    display: flex; align-items: center; gap: 12px;
+    display: flex; align-items: center; gap: 10px;
     padding: 12px 16px;
     background: rgba(15, 20, 25, .92);
     backdrop-filter: blur(8px);
@@ -34,14 +34,16 @@
   }
   h1 { font-size: 16px; margin: 0; font-weight: 700; white-space: nowrap; }
   .brand { color: var(--accent2); }
-  .tabs { display: flex; gap: 4px; }
+  .tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
   .tab {
     border: 1px solid var(--border); background: var(--card);
     color: var(--muted); padding: 6px 14px; border-radius: 999px;
     cursor: pointer; font-size: 13px;
   }
   .tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .spacer { flex: 1; }
+  .spacer { flex: 1; min-width: 8px; }
+  .header-actions { display: flex; gap: 8px; flex: none; }
   button.ghost {
     border: 1px solid var(--border); background: var(--card2);
     color: var(--text); padding: 6px 12px; border-radius: 8px;
@@ -101,6 +103,8 @@
   .fav-detail { margin-top: 8px; }
   .fav-detail .fav-item { margin-bottom: 8px; padding: 10px 12px; }
   .updated { font-size: 11px; color: var(--muted); text-align: center; margin-top: 18px; }
+  .content-toolbar { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 10px; flex-wrap: wrap; }
+  .content-toolbar button { font-size: 12px; padding: 5px 10px; }
   .badge-new {
     display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
     background: var(--ok); color: #06281c; font-size: 11px; font-weight: 700;
@@ -132,13 +136,17 @@
   <div class="spacer"></div>
   <div class="status" id="quota" style="color:var(--muted);max-width:none;white-space:nowrap"></div>
   <div class="status" id="status">加载中…</div>
-  <button class="ghost" id="copy-md">复制研究包</button>
-  <button class="ghost" id="copy-csv">复制 CSV</button>
-  <button class="ghost" id="refresh">刷新</button>
-  <button class="ghost" id="open-settings">设置</button>
+  <div class="header-actions">
+    <button class="ghost" id="refresh">刷新</button>
+    <button class="ghost" id="open-settings">设置</button>
+  </div>
 </header>
 
 <main>
+  <div class="content-toolbar">
+    <button class="ghost" id="copy-md">复制研究包</button>
+    <button class="ghost" id="copy-csv">复制 CSV</button>
+  </div>
   <div id="banner" class="banner" style="display:none"></div>
   <div id="content"><div class="empty">加载中…</div></div>
   <div class="updated" id="updated"></div>
@@ -278,7 +286,7 @@
 (() => {
   'use strict'
   const $ = (id) => document.getElementById(id)
-  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', trackInterval: 'zhihu.trackInterval', trackLimit: 'zhihu.trackLimit', trackSinceHours: 'zhihu.trackSinceHours', trackContentType: 'zhihu.trackContentType', trackHistory: 'zhihu.trackHistory', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', localSortMode: 'zhihu.localSortMode', preferKeywords: 'zhihu.preferKeywords', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
+  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', trackInterval: 'zhihu.trackInterval', trackLimit: 'zhihu.trackLimit', trackSinceHours: 'zhihu.trackSinceHours', trackContentType: 'zhihu.trackContentType', trackHistory: 'zhihu.trackHistory', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', localSortMode: 'zhihu.localSortMode', preferKeywords: 'zhihu.preferKeywords', favSearch: 'zhihu.favSearch', favSort: 'zhihu.favSort', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
 
   let tab = 'hot'
   let timer = null
@@ -555,6 +563,8 @@
       trackNotify: lsGet(LS.trackNotify, '1') === '1',
       localSortMode: lsGet(LS.localSortMode, 'source'),
       preferKeywords: linesOf(lsGet(LS.preferKeywords, '')),
+      favSearch: lsGet(LS.favSearch, ''),
+      favSort: lsGet(LS.favSort, 'source'),
       blockKeywords: linesOf(lsGet(LS.blockKeywords, '')),
       blockAuthors: linesOf(lsGet(LS.blockAuthors, '')),
       blockRegex: linesOf(lsGet(LS.blockRegex, '')),
@@ -1216,7 +1226,30 @@
       setExportState('知乎收藏夹研究包', [])
       return
     }
-    box.innerHTML = ''
+    box.innerHTML = `
+      <div class="card" style="margin-bottom:12px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input id="fav-search" type="text" value="${escapeHtml(config().favSearch)}" placeholder="搜索收藏夹内容/作者"
+            style="flex:1;min-width:220px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px">
+          <button class="ghost" id="fav-search-apply">搜索</button>
+          <button class="ghost" id="fav-search-clear">清除</button>
+          <select id="fav-sort" style="width:auto;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px">
+            <option value="source">收藏夹默认</option>
+            <option value="time">收藏时间</option>
+            <option value="likes">点赞最多</option>
+            <option value="title">标题 A-Z</option>
+            <option value="local">本地评分</option>
+          </select>
+        </div>
+        <div class="hint">搜索/排序只在本地处理；NEW 表示该收藏夹上次加载后新出现的内容。</div>
+      </div>
+    `
+    $('fav-sort').value = config().favSort
+    const applyFavSearch = () => { lsSet(LS.favSearch, $('fav-search').value.trim()); renderFavLists() }
+    $('fav-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') applyFavSearch() })
+    $('fav-search-apply').addEventListener('click', applyFavSearch)
+    $('fav-search-clear').addEventListener('click', () => { lsSet(LS.favSearch, ''); renderFavLists() })
+    $('fav-sort').addEventListener('change', (e) => { lsSet(LS.favSort, e.target.value); renderFavLists() })
     const secret2 = secret
     let loadedLists = 0
     let loadedItems = 0
@@ -1276,6 +1309,39 @@
     })
   }
 
+  function favSeenKey(token) {
+    return `zhihu.favSeen.${token}`
+  }
+
+  function readFavSeen(token) {
+    try {
+      const raw = localStorage.getItem(favSeenKey(token))
+      if (raw === null) return null
+      const list = JSON.parse(raw)
+      return Array.isArray(list) ? new Set(list.map(String)) : new Set()
+    } catch { return null }
+  }
+
+  function writeFavSeen(token, ids) {
+    try { localStorage.setItem(favSeenKey(token), JSON.stringify([...ids].slice(0, 500))) } catch { /* private mode */ }
+  }
+
+  function favSearchTextOf(it) {
+    return [it.Title, it.Summary, it.ContentText, it.Author?.Name].filter(Boolean).join('\n').toLowerCase()
+  }
+
+  function sortFavoriteItems(items, mode) {
+    const list = [...items]
+    if (mode === 'time') return list.sort((a, b) => (Number(b.FavTime || 0) || 0) - (Number(a.FavTime || 0) || 0))
+    if (mode === 'likes') return list.sort((a, b) => (Number(b.LikeCount || 0) || 0) - (Number(a.LikeCount || 0) || 0))
+    if (mode === 'title') return list.sort((a, b) => String(a.Title || '').localeCompare(String(b.Title || ''), 'zh-CN'))
+    if (mode === 'local') {
+      const wrapped = list.map((it) => ({ raw: it, title: it.Title || '', summary: String(it.Summary || it.ContentText || ''), author: it.Author?.Name || '', likes: it.LikeCount || 0, time: it.FavTime || 0 }))
+      return sortContentItems(wrapped).map((it) => it.raw)
+    }
+    return list
+  }
+
   /** 渲染单个收藏夹的内容，直接填充到已挂载的 detail 容器。 */
   async function renderFavItems(detail, count, token, secret, listTitle = '收藏夹') {
     let payload
@@ -1290,7 +1356,16 @@
       return { count: 0, items: [] }
     }
     const rawItems = Array.isArray(payload.Data?.Items) ? payload.Data.Items : []
-    const filtered = applyContentFilter(rawItems.map((it) => ({
+    const seenBefore = readFavSeen(token)
+    const currentIds = new Set(rawItems.map((it) => String(it.ContentID || it.Url || '')).filter(Boolean))
+    rawItems.forEach((it) => {
+      const cid = String(it.ContentID || it.Url || '')
+      it.__isNewFav = seenBefore !== null && cid !== '' && !seenBefore.has(cid)
+    })
+    writeFavSeen(token, currentIds)
+    const favQuery = config().favSearch.trim().toLowerCase()
+    const searchedItems = favQuery ? rawItems.filter((it) => favSearchTextOf(it).includes(favQuery)) : rawItems
+    const filtered = applyContentFilter(searchedItems.map((it) => ({
       raw: it,
       title: it.Title || '(无标题)',
       url: it.Url || '#',
@@ -1298,18 +1373,18 @@
       author: it.Author?.Name || '',
       likes: it.LikeCount || 0,
       time: it.FavTime || 0,
+      isNew: Boolean(it.__isNewFav),
     })))
-    const sorted = sortContentItems(filtered.kept)
-    const items = sorted.map((it) => it.raw)
+    const items = sortFavoriteItems(filtered.kept.map((it) => it.raw), config().favSort)
     count.textContent = `${items.length}/${rawItems.length} 条${filterStatusSuffix(filtered.blocked)}`
     if (items.length === 0) {
       detail.innerHTML = rawItems.length === 0
         ? '<div class="empty">这个收藏夹还没有内容。</div>'
-        : '<div class="empty">这个收藏夹的内容都被过滤规则隐藏了。</div>'
+        : (favQuery ? '<div class="empty">这个收藏夹没有匹配搜索条件的内容。</div>' : '<div class="empty">这个收藏夹的内容都被过滤规则隐藏了。</div>')
       return { count: 0, items: [] }
     }
     const exportItems = items.map((it) => normalizeExportItem({
-      source: listTitle,
+      source: it.__isNewFav ? `${listTitle} · NEW` : listTitle,
       title: it.Title || '(无标题)',
       url: it.Url || '',
       summary: String(it.Summary || it.ContentText || ''),
@@ -1329,6 +1404,7 @@
       a.rel = 'noreferrer'
       a.textContent = it.Title || '(无标题)'
       title.appendChild(a)
+      if (it.__isNewFav) title.appendChild(Object.assign(document.createElement('span'), { className: 'badge-new', textContent: 'NEW' }))
       card.appendChild(title)
       const meta = document.createElement('div')
       meta.className = 'meta'
@@ -1342,7 +1418,7 @@
         summary.textContent = String(it.Summary || it.ContentText).replace(/<[^>]*>/g, '').slice(0, 300)
         card.appendChild(summary)
       }
-      appendFilterActions(card, { title: it.Title || '', summary: String(it.Summary || it.ContentText || ''), author: it.Author?.Name || '', url: it.Url || '', time: it.FavTime || '', likes: it.LikeCount || '' })
+      appendFilterActions(card, { title: it.Title || '', summary: String(it.Summary || it.ContentText || ''), author: it.Author?.Name || '', url: it.Url || '', time: it.FavTime || '', likes: it.LikeCount || '', source: it.__isNewFav ? `${listTitle} · NEW` : listTitle })
       detail.appendChild(card)
     })
     return { count: items.length, items: exportItems }
