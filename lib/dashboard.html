@@ -26,24 +26,25 @@
   }
   header {
     position: sticky; top: 0; z-index: 10;
-    display: flex; align-items: center; gap: 10px;
-    padding: 12px 16px;
+    padding: 10px 12px;
     background: rgba(15, 20, 25, .92);
     backdrop-filter: blur(8px);
     border-bottom: 1px solid var(--border);
   }
-  h1 { font-size: 16px; margin: 0; font-weight: 700; white-space: nowrap; }
+  .header-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  h1 { font-size: 15px; margin: 0; font-weight: 700; white-space: nowrap; }
   .brand { color: var(--accent2); }
-  .tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+  .tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; padding-bottom: 1px; }
   .tabs::-webkit-scrollbar { display: none; }
   .tab {
     border: 1px solid var(--border); background: var(--card);
-    color: var(--muted); padding: 6px 14px; border-radius: 999px;
-    cursor: pointer; font-size: 13px;
+    color: var(--muted); padding: 5px 10px; border-radius: 999px;
+    cursor: pointer; font-size: 12px; white-space: nowrap;
   }
   .tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
   .spacer { flex: 1; min-width: 8px; }
-  .header-actions { display: flex; gap: 8px; flex: none; }
+  .header-actions { display: flex; gap: 6px; flex: none; }
+  .header-actions button { font-size: 12px; padding: 5px 9px; }
   button.ghost {
     border: 1px solid var(--border); background: var(--card2);
     color: var(--text); padding: 6px 12px; border-radius: 8px;
@@ -51,8 +52,8 @@
   }
   button.ghost:hover { border-color: var(--accent); }
   button.ghost:disabled { opacity: .45; cursor: not-allowed; border-color: var(--border); }
-  .status { font-size: 12px; color: var(--muted); max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  main { max-width: 860px; margin: 0 auto; padding: 16px; }
+  .status { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  main { max-width: 860px; margin: 0 auto; padding: 14px 16px 16px; }
   .card {
     background: var(--card); border: 1px solid var(--border);
     border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
@@ -103,7 +104,9 @@
   .fav-detail { margin-top: 8px; }
   .fav-detail .fav-item { margin-bottom: 8px; padding: 10px 12px; }
   .updated { font-size: 11px; color: var(--muted); text-align: center; margin-top: 18px; }
-  .content-toolbar { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 10px; flex-wrap: wrap; }
+  .content-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .content-toolbar .toolbar-status { flex: 1; min-width: 180px; display: flex; gap: 10px; align-items: center; color: var(--muted); }
+  .content-toolbar .toolbar-actions { display: flex; gap: 8px; margin-left: auto; }
   .content-toolbar button { font-size: 12px; padding: 5px 10px; }
   .badge-new {
     display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
@@ -125,7 +128,14 @@
 </head>
 <body>
 <header>
-  <h1><span class="brand">知乎</span>面板</h1>
+  <div class="header-top">
+    <h1><span class="brand">知乎</span>面板</h1>
+    <div class="spacer"></div>
+    <div class="header-actions">
+      <button class="ghost" id="refresh">刷新</button>
+      <button class="ghost" id="open-settings">设置</button>
+    </div>
+  </div>
   <nav class="tabs">
     <button class="tab active" data-tab="hot" id="tab-hot">热榜</button>
     <button class="tab" data-tab="feed" id="tab-feed">关注动态</button>
@@ -134,19 +144,18 @@
     <button class="tab" data-tab="workspace" id="tab-workspace">工作台</button>
     <button class="tab" data-tab="track" id="tab-track">帖子追踪</button>
   </nav>
-  <div class="spacer"></div>
-  <div class="status" id="quota" style="color:var(--muted);max-width:none;white-space:nowrap"></div>
-  <div class="status" id="status">加载中…</div>
-  <div class="header-actions">
-    <button class="ghost" id="refresh">刷新</button>
-    <button class="ghost" id="open-settings">设置</button>
-  </div>
 </header>
 
 <main>
   <div class="content-toolbar">
-    <button class="ghost" id="copy-md">复制研究包</button>
-    <button class="ghost" id="copy-csv">复制 CSV</button>
+    <div class="toolbar-status">
+      <span class="status" id="status">加载中…</span>
+      <span class="status" id="quota"></span>
+    </div>
+    <div class="toolbar-actions">
+      <button class="ghost" id="copy-md">复制研究包</button>
+      <button class="ghost" id="copy-csv">复制 CSV</button>
+    </div>
   </div>
   <div id="banner" class="banner" style="display:none"></div>
   <div id="content"><div class="empty">加载中…</div></div>
@@ -863,6 +872,23 @@
     return { shown: visible.length, blocked: filtered.blocked.length }
   }
 
+  function tabTitle(name = tab) {
+    return name === 'hot' ? '热榜'
+      : name === 'feed' ? '关注动态'
+      : name === 'favs' ? '收藏夹'
+      : name === 'unread' ? '未读'
+      : name === 'workspace' ? '工作台'
+      : '帖子追踪'
+  }
+
+  function showTabLoading(name = tab) {
+    const title = tabTitle(name)
+    $('status').textContent = `加载${title}…`
+    $('updated').textContent = ''
+    $('content').innerHTML = `<div class="empty">加载${title}…</div>`
+    setExportState(`知乎${title}研究包`, [])
+  }
+
   /** 加载今日配额（热榜/直答剩余）。 */
   async function refreshQuota() {
     const secret = config().secret
@@ -890,14 +916,6 @@
       renderOnboarding()
       return
     }
-    // CLI 缺失引导：先检查 zhihu-cli 是否安装，缺失则提示安装而非报错。
-    try {
-      const check = await fetchJson('/zhihu-dashboard/api/cli-check', secret)
-      if (check.ok === true && check.installed !== true) {
-        renderCliMissing()
-        return
-      }
-    } catch { /* cli-check is best-effort */ }
     // 内存 tab 缓存：切回已加载过的 tab 时立即恢复内容，再静默后台刷新。
     const cached = tabCache.get(tab)
     if (cached !== undefined && !forcedRefresh) {
@@ -908,11 +926,21 @@
       void refreshTab(tab)
       return
     }
+    if (!isBackgroundRefresh) showTabLoading(tab)
+    // CLI 缺失引导：先检查 zhihu-cli 是否安装，缺失则提示安装而非报错。
+    try {
+      const check = await fetchJson('/zhihu-dashboard/api/cli-check', secret)
+      if (check.ok === true && check.installed !== true) {
+        renderCliMissing()
+        return
+      }
+    } catch { /* cli-check is best-effort */ }
     forcedRefresh = false
     let url
     if (tab === 'hot') {
       url = `/zhihu-dashboard/api/hot?limit=${cfg.hotLimit}`
-    } else if (tab === 'feed') {      const source = cfg.feedSource
+    } else if (tab === 'feed') {
+      const source = cfg.feedSource
       if (source === 'followees') {
         renderFollowees()
         return
