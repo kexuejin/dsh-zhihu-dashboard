@@ -131,6 +131,7 @@
     <button class="tab" data-tab="feed" id="tab-feed">关注动态</button>
     <button class="tab" data-tab="favs" id="tab-favs">收藏夹</button>
     <button class="tab" data-tab="unread" id="tab-unread">未读</button>
+    <button class="tab" data-tab="workspace" id="tab-workspace">工作台</button>
     <button class="tab" data-tab="track" id="tab-track">帖子追踪</button>
   </nav>
   <div class="spacer"></div>
@@ -286,7 +287,7 @@
 (() => {
   'use strict'
   const $ = (id) => document.getElementById(id)
-  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', trackInterval: 'zhihu.trackInterval', trackLimit: 'zhihu.trackLimit', trackSinceHours: 'zhihu.trackSinceHours', trackContentType: 'zhihu.trackContentType', trackHistory: 'zhihu.trackHistory', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', localSortMode: 'zhihu.localSortMode', preferKeywords: 'zhihu.preferKeywords', favSearch: 'zhihu.favSearch', favSort: 'zhihu.favSort', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
+  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', workspaceItems: 'zhihu.workspaceItems', trackInterval: 'zhihu.trackInterval', trackLimit: 'zhihu.trackLimit', trackSinceHours: 'zhihu.trackSinceHours', trackContentType: 'zhihu.trackContentType', trackHistory: 'zhihu.trackHistory', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', localSortMode: 'zhihu.localSortMode', preferKeywords: 'zhihu.preferKeywords', favSearch: 'zhihu.favSearch', favSort: 'zhihu.favSort', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
 
   let tab = 'hot'
   let timer = null
@@ -348,6 +349,59 @@
     const header = ['source', 'title', 'author', 'summary', 'url', 'time', 'likes']
     const rows = state.items.map((it) => normalizeExportItem(it)).map((it) => header.map((key) => csvEscape(it[key])).join(','))
     return [header.join(','), ...rows].join('\n')
+  }
+
+  function readWorkspaceItems() {
+    try {
+      const list = JSON.parse(lsGet(LS.workspaceItems, '[]'))
+      return Array.isArray(list) ? list : []
+    } catch { return [] }
+  }
+
+  function writeWorkspaceItems(list) {
+    lsSet(LS.workspaceItems, JSON.stringify(list.slice(0, 500)))
+  }
+
+  function workspaceIdFor(item) {
+    const normalized = normalizeExportItem(item)
+    return normalized.url || `${normalized.source}|${normalized.title}|${normalized.author}`
+  }
+
+  function addWorkspaceItem(raw, status = 'later') {
+    const item = normalizeExportItem(raw)
+    const id = workspaceIdFor(item)
+    const now = Date.now()
+    const list = readWorkspaceItems().filter((it) => it.id !== id)
+    list.unshift(Object.assign({}, item, { id, status, addedAt: now, updatedAt: now }))
+    writeWorkspaceItems(list)
+    $('status').textContent = status === 'analysis' ? '已加入待分析' : status === 'done' ? '已标记已处理' : '已加入稍后读'
+  }
+
+  function updateWorkspaceItem(id, status) {
+    writeWorkspaceItems(readWorkspaceItems().map((it) => it.id === id ? Object.assign({}, it, { status, updatedAt: Date.now() }) : it))
+    renderWorkspace()
+  }
+
+  function removeWorkspaceItem(id) {
+    writeWorkspaceItems(readWorkspaceItems().filter((it) => it.id !== id))
+    renderWorkspace()
+  }
+
+  function appendWorkspaceActions(card, it) {
+    const actions = document.createElement('div')
+    actions.className = 'filter-actions'
+    ;[
+      ['later', '稍后读'],
+      ['analysis', '待分析'],
+      ['done', '已处理'],
+    ].forEach(([status, label]) => {
+      const btn = document.createElement('button')
+      btn.className = 'ghost'
+      btn.textContent = label
+      btn.addEventListener('click', () => addWorkspaceItem(it, status))
+      actions.appendChild(btn)
+    })
+    card.appendChild(actions)
   }
 
   function readerMarkdownFor(item) {
@@ -545,6 +599,7 @@
       actions.appendChild(kw)
     }
     if (actions.childNodes.length > 0) card.appendChild(actions)
+    appendWorkspaceActions(card, it)
   }
 
   function config() {
@@ -758,6 +813,10 @@
   async function load() {
     const cfg = config()
     const secret = cfg.secret
+    if (tab === 'workspace') {
+      renderWorkspace()
+      return
+    }
     void refreshQuota()
     if (!secret) {
       // First-run onboarding: no Access Secret yet — guide the user instead of
@@ -1422,6 +1481,88 @@
       detail.appendChild(card)
     })
     return { count: items.length, items: exportItems }
+  }
+
+  function renderWorkspace() {
+    const box = $('content')
+    const items = sortContentItems(readWorkspaceItems())
+    setExportState('知乎工作台研究包', items)
+    if (items.length === 0) {
+      $('status').textContent = '工作台为空'
+      box.innerHTML = '<div class="empty">还没有工作台内容。可在任意内容卡片点击“稍后读 / 待分析 / 已处理”。</div>'
+      return
+    }
+    $('status').textContent = `工作台 ${items.length} 条`
+    box.innerHTML = ''
+    const summary = document.createElement('div')
+    summary.className = 'card'
+    const counts = ['later', 'analysis', 'done'].map((status) => [status, items.filter((it) => it.status === status).length])
+    summary.innerHTML = `<div class="title">内容工作台</div><div class="meta"><span>稍后读 ${counts[0][1]}</span><span>待分析 ${counts[1][1]}</span><span>已处理 ${counts[2][1]}</span></div><div class="hint">所有内容仅保存在本浏览器 localStorage，可用顶部“复制研究包 / CSV”导出。</div>`
+    box.appendChild(summary)
+    ;[
+      ['analysis', '待分析'],
+      ['later', '稍后读'],
+      ['done', '已处理'],
+    ].forEach(([status, label]) => {
+      const group = items.filter((it) => it.status === status)
+      if (group.length === 0) return
+      const head = document.createElement('div')
+      head.className = 'updated'
+      head.style.textAlign = 'left'
+      head.textContent = `${label}（${group.length}）`
+      box.appendChild(head)
+      group.forEach((it) => {
+        const card = document.createElement('div')
+        card.className = 'card'
+        const title = document.createElement('div')
+        title.className = 'title'
+        const a = document.createElement('a')
+        a.href = it.url || '#'
+        a.target = '_blank'
+        a.rel = 'noreferrer'
+        a.textContent = it.title || '(无标题)'
+        title.appendChild(a)
+        card.appendChild(title)
+        const meta = document.createElement('div')
+        meta.className = 'meta'
+        if (it.source) meta.appendChild(Object.assign(document.createElement('span'), { textContent: it.source }))
+        if (it.author) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `@ ${it.author}` }))
+        if (it.addedAt) meta.appendChild(Object.assign(document.createElement('span'), { textContent: `加入 ${new Date(it.addedAt).toLocaleString('zh-CN', { hour12: false })}` }))
+        card.appendChild(meta)
+        if (it.summary) {
+          const summaryText = document.createElement('div')
+          summaryText.className = 'summary'
+          summaryText.textContent = it.summary.slice(0, 300)
+          card.appendChild(summaryText)
+        }
+        const actions = document.createElement('div')
+        actions.className = 'filter-actions'
+        const read = document.createElement('button')
+        read.className = 'ghost'
+        read.textContent = '阅读'
+        read.addEventListener('click', () => renderReadingView(it, renderWorkspace))
+        actions.appendChild(read)
+        ;[
+          ['later', '稍后读'],
+          ['analysis', '待分析'],
+          ['done', '已处理'],
+        ].forEach(([nextStatus, text]) => {
+          if (nextStatus === status) return
+          const btn = document.createElement('button')
+          btn.className = 'ghost'
+          btn.textContent = text
+          btn.addEventListener('click', () => updateWorkspaceItem(it.id, nextStatus))
+          actions.appendChild(btn)
+        })
+        const del = document.createElement('button')
+        del.className = 'ghost'
+        del.textContent = '删除'
+        del.addEventListener('click', () => removeWorkspaceItem(it.id))
+        actions.appendChild(del)
+        card.appendChild(actions)
+        box.appendChild(card)
+      })
+    })
   }
 
   /** 未读 tab：聚合所有追踪项新发现的内容，查看后清零。 */
