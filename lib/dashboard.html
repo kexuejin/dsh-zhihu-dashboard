@@ -79,9 +79,22 @@
   #settings.open { display: flex; }
   .panel {
     background: var(--card2); border: 1px solid var(--border);
-    border-radius: 14px; padding: 20px; width: min(520px, 92vw);
+    border-radius: 14px; width: min(760px, 94vw); max-height: 88vh;
+    display: flex; flex-direction: column; overflow: hidden;
   }
-  .panel h2 { margin: 0 0 14px; font-size: 15px; }
+  .panel h2 { margin: 0; font-size: 15px; }
+  .settings-head { padding: 18px 20px 10px; border-bottom: 1px solid var(--border); }
+  .settings-tabs { display: flex; gap: 6px; padding: 10px 20px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+  .settings-tab { border: 1px solid var(--border); background: var(--card); color: var(--muted); padding: 5px 12px; border-radius: 999px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+  .settings-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .settings-body { padding: 0 20px 14px; overflow-y: auto; }
+  .settings-section { display: none; padding-top: 12px; }
+  .settings-section.active { display: block; }
+  .settings-subtitle { margin: 10px 0 2px; color: var(--accent2); font-size: 12px; font-weight: 700; }
+  .settings-callout { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-top: 12px; color: var(--muted); font-size: 12px; background: var(--card); }
+  .check-row { display:flex!important; align-items:flex-start; gap:8px; color:var(--muted); line-height:1.5; }
+  .check-row input { width:auto!important; margin-top:2px; }
+  .settings-actions { padding: 12px 20px; border-top: 1px solid var(--border); margin-top: 0!important; }
   .panel label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
   .panel input, .panel select, .panel textarea {
     width: 100%; padding: 8px 10px; border-radius: 8px;
@@ -165,128 +178,156 @@
 
 <div id="settings">
   <div class="panel">
-    <h2>设置</h2>
-    <label for="secret">Access Secret（知乎开放平台）</label>
-    <div style="display:flex;gap:8px">
-      <input id="secret" type="password" autocomplete="off" placeholder="zh-…" style="flex:1">
-      <button class="ghost" id="verify-secret" style="flex:none">验证</button>
-    </div>
-    <div id="verify-result" style="font-size:12px;margin-top:6px;min-height:16px"></div>
-    <div class="hint">仅保存在本浏览器 localStorage，每次请求经同源接口注入 CLI，不写入系统密钥链。获取：<a href="https://developer.zhihu.com/profile" target="_blank" rel="noreferrer">developer.zhihu.com/profile</a></div>
-    <div class="row">
+    <div class="settings-head">
       <div>
-        <label for="hotLimit">热榜条数 (1-30)</label>
-        <input id="hotLimit" type="number" min="1" max="30">
-      </div>
-      <div>
-        <label for="feedLimit">动态条数 (1-50)</label>
-        <input id="feedLimit" type="number" min="1" max="50">
+        <h2>设置</h2>
+        <div class="hint">按使用频率分组：基础配置、追踪、发现与过滤。浏览器会话入口保留在机会报告页，避免把高风险 Cookie 操作塞进常规设置。</div>
       </div>
     </div>
-    <div class="row">
-      <div>
-        <label for="refreshSeconds">自动刷新（秒，0=关）</label>
-        <input id="refreshSeconds" type="number" min="0" max="3600">
-      </div>
-      <div>
-        <label for="feedSource">动态来源</label>
-        <select id="feedSource">
-          <option value="favorites">我的近期收藏</option>
-          <option value="contents">我的创作</option>
-          <option value="followees">我关注的人</option>
-        </select>
-      </div>
-      <div>
-        <label for="contentsSort">创作排序（仅"我的创作"）</label>
-        <select id="contentsSort">
-          <option value="ts">最新发布</option>
-          <option value="like_count">点赞最多</option>
-        </select>
-      </div>
+    <div class="settings-tabs">
+      <button class="settings-tab active" data-settings-tab="basic">基础</button>
+      <button class="settings-tab" data-settings-tab="tracking">追踪</button>
+      <button class="settings-tab" data-settings-tab="discovery">发现</button>
+      <button class="settings-tab" data-settings-tab="filters">过滤</button>
     </div>
-    <div class="row">
-      <div>
-        <label for="trackInterval">追踪检查间隔（分钟，0=关）</label>
-        <input id="trackInterval" type="number" min="0" max="1440">
-      </div>
-      <div>
-        <label for="autoBrief">自动创意简报</label>
-        <div style="display:flex;align-items:center;gap:8px;padding-top:7px">
-          <input id="autoBrief" type="checkbox" style="width:auto">
-          <span class="hint" style="margin:0">发现新回答时自动调知乎直答提炼创意（每次消耗 1 次直答额度，100/天）</span>
+    <div class="settings-body">
+      <section class="settings-section active" data-settings-section="basic">
+        <div class="settings-subtitle">认证</div>
+        <label for="secret">Access Secret（知乎开放平台）</label>
+        <div style="display:flex;gap:8px">
+          <input id="secret" type="password" autocomplete="off" placeholder="zh-…" style="flex:1">
+          <button class="ghost" id="verify-secret" style="flex:none">验证</button>
         </div>
-      </div>
-    </div>
-    <div class="row">
-      <div>
-        <label for="trackLimit">每个追踪项检查条数 (5-20)</label>
-        <input id="trackLimit" type="number" min="5" max="20">
-      </div>
-      <div>
-        <label for="trackSinceHours">追踪时间窗</label>
-        <select id="trackSinceHours">
-          <option value="0">不限时间</option>
-          <option value="24">近 24 小时</option>
-          <option value="72">近 3 天</option>
-          <option value="168">近 7 天</option>
-        </select>
-      </div>
-      <div>
-        <label for="trackContentType">追踪内容类型</label>
-        <select id="trackContentType">
-          <option value="all">全部</option>
-          <option value="answer">回答</option>
-          <option value="article">文章</option>
-          <option value="question">问题</option>
-          <option value="pin">想法</option>
-        </select>
-      </div>
-    </div>
-    <div class="row">
-      <div>
-        <label for="trackNotify">追踪新内容系统通知</label>
-        <div style="display:flex;align-items:center;gap:8px;padding-top:7px">
-          <input id="trackNotify" type="checkbox" style="width:auto">
-          <span class="hint" style="margin:0">检查发现新内容时弹浏览器系统通知（首次需授权）</span>
+        <div id="verify-result" style="font-size:12px;margin-top:6px;min-height:16px"></div>
+        <div class="hint">仅保存在本浏览器 localStorage，每次请求经同源接口注入 CLI，不写入系统密钥链。获取：<a href="https://developer.zhihu.com/profile" target="_blank" rel="noreferrer">developer.zhihu.com/profile</a></div>
+        <div class="settings-subtitle">列表与刷新</div>
+        <div class="row">
+          <div>
+            <label for="hotLimit">热榜条数 (1-30)</label>
+            <input id="hotLimit" type="number" min="1" max="30">
+          </div>
+          <div>
+            <label for="feedLimit">动态条数 (1-50)</label>
+            <input id="feedLimit" type="number" min="1" max="50">
+          </div>
         </div>
-      </div>
+        <div class="row">
+          <div>
+            <label for="refreshSeconds">自动刷新（秒，0=关）</label>
+            <input id="refreshSeconds" type="number" min="0" max="3600">
+          </div>
+          <div>
+            <label for="feedSource">动态来源</label>
+            <select id="feedSource">
+              <option value="favorites">我的近期收藏</option>
+              <option value="contents">我的创作</option>
+              <option value="followees">我关注的人</option>
+            </select>
+          </div>
+          <div>
+            <label for="contentsSort">创作排序</label>
+            <select id="contentsSort">
+              <option value="ts">最新发布</option>
+              <option value="like_count">点赞最多</option>
+            </select>
+          </div>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-section="tracking">
+        <div class="settings-subtitle">自动检查</div>
+        <div class="row">
+          <div>
+            <label for="trackInterval">追踪检查间隔（分钟，0=关）</label>
+            <input id="trackInterval" type="number" min="0" max="1440">
+          </div>
+          <div>
+            <label for="trackLimit">每个追踪项检查条数 (5-20)</label>
+            <input id="trackLimit" type="number" min="5" max="20">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="trackSinceHours">追踪时间窗</label>
+            <select id="trackSinceHours">
+              <option value="0">不限时间</option>
+              <option value="24">近 24 小时</option>
+              <option value="72">近 3 天</option>
+              <option value="168">近 7 天</option>
+            </select>
+          </div>
+          <div>
+            <label for="trackContentType">追踪内容类型</label>
+            <select id="trackContentType">
+              <option value="all">全部</option>
+              <option value="answer">回答</option>
+              <option value="article">文章</option>
+              <option value="question">问题</option>
+              <option value="pin">想法</option>
+            </select>
+          </div>
+        </div>
+        <div class="settings-subtitle">提醒与简报</div>
+        <div class="row">
+          <div>
+            <label for="trackNotify">追踪新内容系统通知</label>
+            <label class="check-row"><input id="trackNotify" type="checkbox">检查发现新内容时弹浏览器系统通知（首次需授权）</label>
+          </div>
+          <div>
+            <label for="autoBrief">自动创意简报</label>
+            <label class="check-row"><input id="autoBrief" type="checkbox">发现新回答时自动调用知乎直答（消耗直答额度）</label>
+          </div>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-section="discovery">
+        <div class="settings-subtitle">机会发现与排序</div>
+        <div class="row">
+          <div>
+            <label for="localSortMode">本地排序</label>
+            <select id="localSortMode">
+              <option value="source">平台默认</option>
+              <option value="new">新增优先</option>
+              <option value="likes">点赞优先</option>
+              <option value="time">时间优先</option>
+              <option value="score">本地评分</option>
+            </select>
+          </div>
+          <div>
+            <label for="preferKeywords">偏好关键词（每行一个，本地评分/机会分加权）</label>
+            <textarea id="preferKeywords" placeholder="AI 应用
+开源
+产品化"></textarea>
+          </div>
+        </div>
+        <div class="settings-callout">
+          浏览器会话是高级只读数据源：请在「机会报告」页检测 profile、验证登录态或手动导入 Cookie。Cookie 不进入模型、导出或日志。
+        </div>
+      </section>
+      <section class="settings-section" data-settings-section="filters">
+        <div class="settings-subtitle">本地过滤</div>
+        <div class="row">
+          <div>
+            <label for="blockKeywords">屏蔽关键词（每行一个，匹配标题/摘要）</label>
+            <textarea id="blockKeywords" placeholder="盐选
+带货
+推广"></textarea>
+          </div>
+          <div>
+            <label for="blockAuthors">屏蔽作者（每行一个，精确匹配）</label>
+            <textarea id="blockAuthors" placeholder="作者昵称"></textarea>
+          </div>
+        </div>
+        <div>
+          <label for="blockRegex">正则屏蔽（每行一个，匹配标题/摘要/作者）</label>
+          <textarea id="blockRegex" placeholder="广告|推广"></textarea>
+          <div class="hint">过滤仅在本浏览器本地执行；无效正则会自动忽略。</div>
+        </div>
+        <div>
+          <label>过滤历史（最近 20 条，可撤销）</label>
+          <div id="filterHistory" class="hint">暂无过滤历史</div>
+        </div>
+      </section>
     </div>
-    <div class="row">
-      <div>
-        <label for="localSortMode">本地排序</label>
-        <select id="localSortMode">
-          <option value="source">平台默认</option>
-          <option value="new">新增优先</option>
-          <option value="likes">点赞优先</option>
-          <option value="time">时间优先</option>
-          <option value="score">本地评分</option>
-        </select>
-      </div>
-      <div>
-        <label for="preferKeywords">偏好关键词（每行一个，本地评分加权）</label>
-        <textarea id="preferKeywords" placeholder="AI 应用\n开源\n产品化"></textarea>
-      </div>
-    </div>
-    <div class="row">
-      <div>
-        <label for="blockKeywords">屏蔽关键词（每行一个，匹配标题/摘要）</label>
-        <textarea id="blockKeywords" placeholder="盐选\n带货\n推广"></textarea>
-      </div>
-      <div>
-        <label for="blockAuthors">屏蔽作者（每行一个，精确匹配）</label>
-        <textarea id="blockAuthors" placeholder="作者昵称"></textarea>
-      </div>
-    </div>
-    <div>
-      <label for="blockRegex">正则屏蔽（每行一个，匹配标题/摘要/作者）</label>
-      <textarea id="blockRegex" placeholder="广告|推广"></textarea>
-      <div class="hint">过滤仅在本浏览器本地执行；无效正则会自动忽略。</div>
-    </div>
-    <div>
-      <label>过滤历史（最近 20 条，可撤销）</label>
-      <div id="filterHistory" class="hint">暂无过滤历史</div>
-    </div>
-    <div class="actions">
+    <div class="actions settings-actions">
       <button class="ghost" id="close-settings">关闭</button>
       <button class="ghost" id="save-settings">保存</button>
     </div>
@@ -2521,6 +2562,11 @@
     load()
   }
 
+  function switchSettingsTab(next = 'basic') {
+    document.querySelectorAll('.settings-tab').forEach((el) => el.classList.toggle('active', el.dataset.settingsTab === next))
+    document.querySelectorAll('.settings-section').forEach((el) => el.classList.toggle('active', el.dataset.settingsSection === next))
+  }
+
   function openSettings() {
     const cfg = config()
     $('secret').value = cfg.secret
@@ -2541,6 +2587,7 @@
     $('blockAuthors').value = cfg.blockAuthors.join('\n')
     $('blockRegex').value = cfg.blockRegex.join('\n')
     renderFilterHistory()
+    switchSettingsTab('basic')
     $('settings').classList.add('open')
   }
 
@@ -2568,6 +2615,7 @@
   }
 
   document.querySelectorAll('.tab').forEach((el) => el.addEventListener('click', () => switchTab(el.dataset.tab)))
+  document.querySelectorAll('.settings-tab').forEach((el) => el.addEventListener('click', () => switchSettingsTab(el.dataset.settingsTab)))
   $('refresh').addEventListener('click', () => {
     if (timer) clearTimeout(timer)
     forcedRefresh = true
