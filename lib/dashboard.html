@@ -186,7 +186,7 @@
     <div class="settings-head">
       <div>
         <h2>设置</h2>
-        <div class="hint">按数据源、追踪、发现与过滤组织配置。浏览器登录态是只读数据源：先在浏览器登录知乎，再让面板检测 profile 或手动导入 Cookie。</div>
+        <div class="hint">按数据源、追踪、发现与过滤组织配置。知乎内容优先走开放平台；需要账号态内容时使用只读登录态，推荐后续扫码登录。</div>
       </div>
     </div>
     <div class="settings-tabs">
@@ -205,24 +205,13 @@
         </div>
         <div id="verify-result" style="font-size:12px;margin-top:6px;min-height:16px"></div>
         <div class="hint">仅保存在本浏览器 localStorage，每次请求经同源接口注入 CLI，不写入系统密钥链。获取：<a href="https://developer.zhihu.com/profile" target="_blank" rel="noreferrer">developer.zhihu.com/profile</a></div>
-        <div class="settings-subtitle">浏览器登录态（只读）</div>
-        <div class="settings-callout">先在 Chrome / Edge / Firefox / Arc 里正常登录 <code>zhihu.com</code>，再检测浏览器 profile。面板只读取 zhihu.com Cookie，不保存账号密码，Cookie 不进入模型、导出或日志。</div>
-        <div class="row">
-          <div>
-            <label for="settings-browser-profile">浏览器 profile</label>
-            <select id="settings-browser-profile"></select>
-          </div>
-          <div>
-            <label>操作</label>
-            <div class="filter-actions" style="margin-top:4px">
-              <button class="ghost" id="settings-detect-browser">检测 profile</button>
-              <button class="ghost" id="settings-verify-browser">验证登录态</button>
-              <button class="ghost" id="settings-load-browser">读取线索</button>
-              <button class="ghost" id="settings-manual-cookie">手动 Cookie</button>
-            </div>
-          </div>
+        <div class="settings-subtitle">知乎扫码登录（推荐）</div>
+        <div class="settings-callout">扫码登录会作为只读登录态使用：不保存账号密码，Cookie 不进入模型、导出或日志。浏览器 Cookie/profile 读取已从用户入口移除，避免加密 Cookie 导致失败。</div>
+        <div class="filter-actions" style="margin-top:8px">
+          <button class="ghost" disabled title="下一版接入扫码登录状态机">生成二维码（下一版）</button>
+          <button class="ghost" disabled title="下一版支持清除扫码会话">清除只读会话</button>
         </div>
-        <div id="settings-browser-status" class="hint">尚未检测浏览器登录态。</div>
+        <div class="hint">当前可继续使用 Access Secret 和本地缓存；扫码登录接入后将优先供智能简报和关注内容读取使用。</div>
         <div class="settings-subtitle">列表与刷新</div>
         <div class="row">
           <div>
@@ -322,7 +311,7 @@
           </div>
         </div>
         <div class="settings-callout">
-          浏览器会话配置在「数据源」页；机会报告页也保留快捷入口。Cookie 不进入模型、导出或日志。
+          知乎只读登录态在「数据源」页配置；扫码登录接入后将作为推荐路径。Cookie 不进入模型、导出或日志。
         </div>
       </section>
       <section class="settings-section" data-settings-section="filters">
@@ -508,14 +497,14 @@
   }
 
   async function loadBrowserSessionItems(profileId, statusEl, cookie = '', rerender = true) {
-    statusEl.textContent = '读取浏览器会话线索…'
+    statusEl.textContent = '读取知乎会话线索…'
     const payload = await postJson('/zhihu-dashboard/api/browser-session-items', { profileId, cookie, limit: 30 })
     if (payload.ok !== true) {
       statusEl.textContent = payload.error || '读取失败'
       return
     }
-    writeBrowserSessionItems((payload.items || []).map((it) => Object.assign({ source: '浏览器会话' }, it)))
-    statusEl.textContent = `已读取 ${payload.items?.length || 0} 条浏览器会话线索`
+    writeBrowserSessionItems((payload.items || []).map((it) => Object.assign({ source: '知乎会话' }, it)))
+    statusEl.textContent = `已读取 ${payload.items?.length || 0} 条知乎会话线索`
     if (rerender) renderOpportunities()
   }
 
@@ -591,7 +580,7 @@
   function sourceCountsForItems(items) {
     return items.reduce((counts, item) => {
       const source = item.source || ''
-      const key = /浏览器会话/.test(source) ? 'browser'
+      const key = /知乎会话|浏览器会话/.test(source) ? 'session'
         : /追踪|未读/.test(source) ? 'tracking'
           : /工作台|研究项目/.test(source) ? 'workspace'
             : /收藏/.test(source) ? 'favorites'
@@ -681,7 +670,7 @@
 
   function buildOpportunityCandidates() {
     const raw = []
-    readBrowserSessionItems().forEach((it) => raw.push(Object.assign({ source: '浏览器会话' }, it)))
+    readBrowserSessionItems().forEach((it) => raw.push(Object.assign({ source: '知乎会话' }, it)))
     cachedDiscoveryItems().forEach((it) => raw.push(it))
     readUnreadItems().forEach((it) => raw.push(Object.assign({ source: it.trackQuery ? `未读追踪：${it.trackQuery}` : '未读追踪', isNew: true }, it)))
     readTracks().forEach((track) => {
@@ -712,8 +701,7 @@
     if (mode === 'high') return items.filter((it) => it.opportunityScore >= 7)
     if (mode === 'new') return items.filter((it) => /NEW|新/.test(it.source || '') || it.isNew || (it.opportunityReasons || []).includes('新内容'))
     if (mode === 'track') return items.filter((it) => /追踪|未读/.test(it.source || ''))
-    if (mode === 'browser') return items.filter((it) => /浏览器会话/.test(it.source || ''))
-    if (mode === 'workspace') return items.filter((it) => /工作台|研究项目/.test(it.source || '') || it.status)
+        if (mode === 'workspace') return items.filter((it) => /工作台|研究项目/.test(it.source || '') || it.status)
     return items
   }
 
@@ -882,10 +870,10 @@
     box.innerHTML = ''
     const intro = document.createElement('div')
     intro.className = 'card'
-    const browserTime = summary.browserAt ? new Date(summary.browserAt).toLocaleString('zh-CN', { hour12: false }) : '未读取'
+    const sessionTime = summary.browserAt ? new Date(summary.browserAt).toLocaleString('zh-CN', { hour12: false }) : '未读取'
     intro.innerHTML = `<div class="title">机会报告</div>
       <div class="opportunity-steps">
-        <div class="opportunity-step"><b>1. 数据源</b><span class="hint">浏览器 ${summary.browserItems.length} · 缓存 ${summary.cached.length} · 追踪 ${summary.trackItems} · 本地 ${summary.localItems}</span></div>
+        <div class="opportunity-step"><b>1. 数据源</b><span class="hint">会话 ${summary.browserItems.length} · 缓存 ${summary.cached.length} · 追踪 ${summary.trackItems} · 本地 ${summary.localItems}</span></div>
         <div class="opportunity-step"><b>2. 候选机会</b><span class="hint">按机会分排序，当前筛选 ${items.length}/${allItems.length}</span></div>
         <div class="opportunity-step"><b>3. 生成报告</b><span class="hint">使用 DSH provider/model，复制 prompt 兜底</span></div>
       </div>`
@@ -910,7 +898,6 @@
       ['high', '高优先级'],
       ['new', '新内容'],
       ['track', '追踪/未读'],
-      ['browser', '浏览器会话'],
       ['workspace', '工作台/项目'],
     ].forEach(([key, label]) => {
       const btn = document.createElement('button')
@@ -922,67 +909,8 @@
     intro.appendChild(filterControls)
     const dataStatus = document.createElement('div')
     dataStatus.className = 'hint'
-    dataStatus.textContent = `浏览器会话上次读取：${browserTime}；本地缓存来自热榜/动态后台刷新，筛选只影响当前报告和导出。`
+    dataStatus.textContent = `只读登录态上次读取：${sessionTime}；扫码登录接入后将作为推荐会话数据源。本地缓存来自热榜/动态后台刷新。`
     intro.appendChild(dataStatus)
-    const sessionControls = document.createElement('div')
-    sessionControls.className = 'filter-actions'
-    const profileSelect = document.createElement('select')
-    profileSelect.style.cssText = 'min-width:220px;padding:5px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px'
-    const savedProfile = lsGet(LS.browserProfile, '')
-    if (savedProfile) {
-      const option = document.createElement('option')
-      option.value = savedProfile
-      option.textContent = '已保存的浏览器 profile'
-      profileSelect.appendChild(option)
-    }
-    const sessionStatus = document.createElement('span')
-    sessionStatus.className = 'hint'
-    sessionStatus.style.margin = '6px 0 0'
-    sessionStatus.textContent = `${summary.browserItems.length} 条浏览器会话线索已缓存；上次读取 ${browserTime}；Cookie 只在 host 端读取，不写入导出或模型。`
-    const detectBtn = document.createElement('button')
-    detectBtn.className = 'ghost'
-    detectBtn.textContent = '检测浏览器会话'
-    detectBtn.addEventListener('click', () => detectBrowserProfiles(profileSelect, sessionStatus))
-    const loadSessionBtn = document.createElement('button')
-    loadSessionBtn.className = 'ghost'
-    loadSessionBtn.textContent = '读取会话线索'
-    loadSessionBtn.addEventListener('click', () => {
-      if (!profileSelect.value) {
-        sessionStatus.textContent = '请先检测并选择浏览器 profile'
-        return
-      }
-      lsSet(LS.browserProfile, profileSelect.value)
-      loadBrowserSessionItems(profileSelect.value, sessionStatus)
-    })
-    const verifySessionBtn = document.createElement('button')
-    verifySessionBtn.className = 'ghost'
-    verifySessionBtn.textContent = '验证登录态'
-    verifySessionBtn.addEventListener('click', async () => {
-      if (!profileSelect.value) {
-        sessionStatus.textContent = '请先检测并选择浏览器 profile'
-        return
-      }
-      sessionStatus.textContent = '验证浏览器登录态…'
-      lsSet(LS.browserProfile, profileSelect.value)
-      const payload = await postJson('/zhihu-dashboard/api/browser-session-verify', { profileId: profileSelect.value })
-      sessionStatus.textContent = payload.ok === true
-        ? `验证完成：${payload.loggedIn ? '看起来已登录' : 'Cookie 存在但未确认登录'}（HTTP ${payload.status || '-'}）`
-        : (payload.error || '验证失败')
-    })
-    const manualCookieBtn = document.createElement('button')
-    manualCookieBtn.className = 'ghost'
-    manualCookieBtn.textContent = '手动 Cookie'
-    manualCookieBtn.addEventListener('click', () => {
-      const cookie = prompt('粘贴 zhihu.com Cookie（仅本次发送到本机 host 用于只读读取，不保存）：', '')
-      if (cookie && cookie.trim()) loadBrowserSessionItems('', sessionStatus, cookie.trim())
-    })
-    sessionControls.appendChild(profileSelect)
-    sessionControls.appendChild(detectBtn)
-    sessionControls.appendChild(verifySessionBtn)
-    sessionControls.appendChild(loadSessionBtn)
-    sessionControls.appendChild(manualCookieBtn)
-    intro.appendChild(sessionControls)
-    intro.appendChild(sessionStatus)
     const output = document.createElement('div')
     output.className = 'card'
     output.style.display = 'none'
@@ -991,7 +919,7 @@
     box.appendChild(renderSmartBriefCard(allItems))
     box.appendChild(output)
     if (items.length === 0) {
-      box.appendChild(Object.assign(document.createElement('div'), { className: 'empty', textContent: allItems.length === 0 ? '暂无机会候选。先刷新热榜/关注动态、添加追踪项，或读取浏览器会话。' : '当前筛选下没有候选。切回“全部”或读取更多数据源。' }))
+      box.appendChild(Object.assign(document.createElement('div'), { className: 'empty', textContent: allItems.length === 0 ? '暂无机会候选。先刷新热榜/关注动态、添加追踪项，或配置数据源。' : '当前筛选下没有候选。切回“全部”或读取更多数据源。' }))
       $('updated').textContent = `机会候选 ${items.length}/${allItems.length} 条 · ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`
       return
     }
@@ -2839,23 +2767,6 @@
     document.querySelectorAll('.settings-section').forEach((el) => el.classList.toggle('active', el.dataset.settingsSection === next))
   }
 
-  function refreshSettingsBrowserSummary(message = '') {
-    const select = $('settings-browser-profile')
-    const status = $('settings-browser-status')
-    const savedProfile = lsGet(LS.browserProfile, '')
-    if (savedProfile && select.options.length === 0) {
-      const option = document.createElement('option')
-      option.value = savedProfile
-      option.textContent = '已保存的浏览器 profile'
-      select.appendChild(option)
-    }
-    if (savedProfile) select.value = savedProfile
-    const count = readBrowserSessionItems().length
-    const browserAt = Number(lsGet(LS.browserSessionAt, '0')) || 0
-    const time = browserAt ? new Date(browserAt).toLocaleString('zh-CN', { hour12: false }) : '未读取'
-    status.textContent = message || `${savedProfile ? '已选择浏览器 profile' : '尚未选择浏览器 profile'}；已缓存 ${count} 条会话线索；上次读取 ${time}。`
-  }
-
   function openSettings() {
     const cfg = config()
     $('secret').value = cfg.secret
@@ -2876,7 +2787,6 @@
     $('blockAuthors').value = cfg.blockAuthors.join('\n')
     $('blockRegex').value = cfg.blockRegex.join('\n')
     renderFilterHistory()
-    refreshSettingsBrowserSummary()
     switchSettingsTab('sources')
     $('settings').classList.add('open')
   }
@@ -2914,37 +2824,6 @@
   })
   $('copy-md').addEventListener('click', () => copyText(markdownForExport(), '研究包'))
   $('copy-csv').addEventListener('click', () => copyText(csvForExport(), 'CSV'))
-  $('settings-browser-profile').addEventListener('change', () => { lsSet(LS.browserProfile, $('settings-browser-profile').value); refreshSettingsBrowserSummary() })
-  $('settings-detect-browser').addEventListener('click', async () => {
-    await detectBrowserProfiles($('settings-browser-profile'), $('settings-browser-status'))
-    refreshSettingsBrowserSummary($('settings-browser-status').textContent)
-  })
-  $('settings-verify-browser').addEventListener('click', async () => {
-    const profileId = $('settings-browser-profile').value
-    if (!profileId) {
-      $('settings-browser-status').textContent = '请先检测并选择浏览器 profile。'
-      return
-    }
-    $('settings-browser-status').textContent = '验证浏览器登录态…'
-    lsSet(LS.browserProfile, profileId)
-    const payload = await postJson('/zhihu-dashboard/api/browser-session-verify', { profileId })
-    $('settings-browser-status').textContent = payload.ok === true
-      ? `验证完成：${payload.loggedIn ? '看起来已登录' : 'Cookie 存在但未确认登录'}（HTTP ${payload.status || '-'}）`
-      : (payload.error || '验证失败')
-  })
-  $('settings-load-browser').addEventListener('click', async () => {
-    const profileId = $('settings-browser-profile').value
-    if (!profileId) {
-      $('settings-browser-status').textContent = '请先检测并选择浏览器 profile。'
-      return
-    }
-    lsSet(LS.browserProfile, profileId)
-    await loadBrowserSessionItems(profileId, $('settings-browser-status'), '', false)
-  })
-  $('settings-manual-cookie').addEventListener('click', async () => {
-    const cookie = prompt('粘贴 zhihu.com Cookie（仅本次发送到本机 host 用于只读读取，不保存）：', '')
-    if (cookie && cookie.trim()) await loadBrowserSessionItems('', $('settings-browser-status'), cookie.trim(), false)
-  })
   $('copy-md').disabled = true
   $('copy-csv').disabled = true
   $('open-settings').addEventListener('click', openSettings)
