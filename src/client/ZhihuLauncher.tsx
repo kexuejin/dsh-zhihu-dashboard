@@ -21,6 +21,17 @@ import { startTrackTimer } from './track-checker.ts'
 
 const PANEL_PATH = '/zhihu-dashboard'
 const UNREAD_KEY = 'zhihu.unread'
+const SMART_BRIEFS_KEY = 'zhihu.smartBriefs'
+
+interface SmartBriefRecord {
+  date?: string
+  status?: string
+  templateTitle?: string
+  candidateCount?: number
+  highPriorityCount?: number
+  generatedAt?: number
+  error?: string
+}
 
 // ── tiny shared store: open state bridged between the two slot registrations ──
 let panelOpen = false
@@ -37,6 +48,31 @@ function usePanelOpen(): boolean {
   const [open, setOpen] = useState(panelOpen)
   useEffect(() => subscribePanelOpen(() => setOpen(panelOpen)), [])
   return open
+}
+
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function readLatestSmartBrief(): SmartBriefRecord | null {
+  try {
+    const list = JSON.parse(localStorage.getItem(SMART_BRIEFS_KEY) ?? '[]') as unknown
+    return Array.isArray(list) && typeof list[0] === 'object' && list[0] !== null ? list[0] as SmartBriefRecord : null
+  } catch {
+    return null
+  }
+}
+
+function useLatestSmartBrief(): SmartBriefRecord | null {
+  const [record, setRecord] = useState<SmartBriefRecord | null>(() => readLatestSmartBrief())
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === SMART_BRIEFS_KEY) setRecord(readLatestSmartBrief())
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+  return record
 }
 
 /** Foot button rendered in the official left sidebar (wide row or rail icon). */
@@ -163,6 +199,46 @@ function ZhihuOverlay() {
   ])
 }
 
+function ZhihuBriefPill() {
+  const open = usePanelOpen()
+  const latest = useLatestSmartBrief()
+  if (open) return null
+  const isToday = latest?.date === todayKey()
+  const failed = latest?.status === 'failed'
+  const text = latest === null
+    ? '知乎智能简报：今日尚未生成'
+    : failed
+      ? `知乎智能简报生成失败：${latest.error || '查看详情'}`
+      : isToday
+        ? `今日智能简报：${latest.templateTitle || '已生成'} · ${latest.candidateCount ?? 0} 条候选`
+        : '知乎智能简报：今日尚未生成'
+  const color = failed ? '#ff6b73' : isToday ? '#00ba7c' : '#8b98a5'
+  return h('button', {
+    type: 'button',
+    title: text,
+    onClick: () => setPanelOpen(true),
+    style: {
+      position: 'absolute',
+      right: 18,
+      bottom: 18,
+      zIndex: 22,
+      pointerEvents: 'auto',
+      border: `1px solid ${color}`,
+      borderRadius: 999,
+      background: 'var(--dsw-alias-bg-layer-1, #171e26)',
+      color,
+      boxShadow: '0 8px 24px rgba(0,0,0,.28)',
+      padding: '8px 12px',
+      maxWidth: 360,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      cursor: 'pointer',
+      fontSize: 12,
+    },
+  }, text)
+}
+
 /**
  * Register the sidebar foot button, the overlay drawer (separate shell.overlay
  * entry), and the background track checker.
@@ -180,6 +256,11 @@ export function registerZhihuLauncher(ctx: Context): void {
     id: 'zhihu-dashboard-drawer',
     order: 10,
   }, ZhihuOverlay))
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'zhihu-dashboard-smart-brief',
+    order: 20,
+  }, ZhihuBriefPill))
   // Background tracking reminders, independent of the panel iframe.
   ctx.effect(() => startTrackTimer(), 'zhihu-dashboard: track checker')
 }

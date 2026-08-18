@@ -361,7 +361,7 @@
 (() => {
   'use strict'
   const $ = (id) => document.getElementById(id)
-  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', workspaceItems: 'zhihu.workspaceItems', researchProjects: 'zhihu.researchProjects', browserProfile: 'zhihu.browserProfile', browserSessionItems: 'zhihu.browserSessionItems', browserSessionAt: 'zhihu.browserSessionAt', trackInterval: 'zhihu.trackInterval', trackLimit: 'zhihu.trackLimit', trackSinceHours: 'zhihu.trackSinceHours', trackContentType: 'zhihu.trackContentType', trackHistory: 'zhihu.trackHistory', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', localSortMode: 'zhihu.localSortMode', preferKeywords: 'zhihu.preferKeywords', favSearch: 'zhihu.favSearch', favSort: 'zhihu.favSort', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
+  const LS = { secret: 'zhihu.secret', hotLimit: 'zhihu.hotLimit', feedLimit: 'zhihu.feedLimit', refreshSeconds: 'zhihu.refreshSeconds', feedSource: 'zhihu.feedSource', contentsSort: 'zhihu.contentsSort', tracks: 'zhihu.tracks', workspaceItems: 'zhihu.workspaceItems', researchProjects: 'zhihu.researchProjects', browserProfile: 'zhihu.browserProfile', browserSessionItems: 'zhihu.browserSessionItems', browserSessionAt: 'zhihu.browserSessionAt', smartBriefs: 'zhihu.smartBriefs', smartBriefTemplate: 'zhihu.smartBriefTemplate', trackInterval: 'zhihu.trackInterval', trackLimit: 'zhihu.trackLimit', trackSinceHours: 'zhihu.trackSinceHours', trackContentType: 'zhihu.trackContentType', trackHistory: 'zhihu.trackHistory', autoBrief: 'zhihu.autoBrief', trackNotify: 'zhihu.trackNotify', localSortMode: 'zhihu.localSortMode', preferKeywords: 'zhihu.preferKeywords', favSearch: 'zhihu.favSearch', favSort: 'zhihu.favSort', blockKeywords: 'zhihu.blockKeywords', blockAuthors: 'zhihu.blockAuthors', blockRegex: 'zhihu.blockRegex', filterHistory: 'zhihu.filterHistory' }
 
   let tab = 'hot'
   let timer = null
@@ -563,6 +563,81 @@
     ].join('\n')
   }
 
+  const BRIEF_TEMPLATES = {
+    opportunity: { title: '开发机会报告', focus: '发现可做成本地项目、DSH 插件、KMP/桌面/移动能力或现有项目功能的新方向。' },
+    person: { title: '人物观点追踪', focus: '总结关注的人/作者/答主的新观点、观点变化、值得收藏的回答和异常信号。' },
+    question: { title: '问题进展追踪', focus: '总结关注问题的新回答、主要观点分歧、信息增量和当前结论是否变化。' },
+    trend: { title: '话题趋势简报', focus: '从热榜、推荐流、关键词和混合动态中识别趋势、子主题、代表内容和噪音。' },
+    research: { title: '研究项目简报', focus: '把工作台/研究项目中的材料沉淀成研究结论、证据、开放问题和下一步任务。' },
+    favorites: { title: '收藏复盘', focus: '复盘收藏/稍后读内容，聚类主题，挑出值得精读、归档或丢弃的内容。' },
+  }
+
+  function todayKey() {
+    return new Date().toISOString().slice(0, 10)
+  }
+
+  function readSmartBriefs() {
+    try {
+      const list = JSON.parse(lsGet(LS.smartBriefs, '[]'))
+      return Array.isArray(list) ? list : []
+    } catch { return [] }
+  }
+
+  function writeSmartBrief(record) {
+    const list = [record, ...readSmartBriefs().filter((it) => !(it.date === record.date && it.template === record.template))].slice(0, 20)
+    lsSet(LS.smartBriefs, JSON.stringify(list))
+  }
+
+  function sourceCountsForItems(items) {
+    return items.reduce((counts, item) => {
+      const source = item.source || ''
+      const key = /浏览器会话/.test(source) ? 'browser'
+        : /追踪|未读/.test(source) ? 'tracking'
+          : /工作台|研究项目/.test(source) ? 'workspace'
+            : /收藏/.test(source) ? 'favorites'
+              : 'cache'
+      counts[key] = (counts[key] || 0) + 1
+      return counts
+    }, {})
+  }
+
+  function routeSmartBrief(items, selected = 'auto') {
+    if (selected !== 'auto' && BRIEF_TEMPLATES[selected]) return { id: selected, reason: '用户手动选择模板' }
+    const text = items.map((it) => [it.source, it.title, it.summary, it.author, it.url].filter(Boolean).join(' ')).join('\n').toLowerCase()
+    const devRe = /(ai|agent|llm|prompt|kmp|kotlin|compose|open source|github|api|sdk|插件|本地|开源|开发|工程|效率|工具|模型|端侧|桌面|移动)/i
+    if (/关注的人|作者|答主|我的创作|followees|author/.test(text)) return { id: 'person', reason: '命中关注的人/作者/答主相关信号' }
+    if (/\/question\/\d+/.test(text) && /追踪|未读|问题|回答/.test(text)) return { id: 'question', reason: '命中问题链接和新回答/追踪信号' }
+    if (/研究项目|工作台/.test(text)) return { id: 'research', reason: '候选主要来自工作台或研究项目' }
+    if (/收藏|稍后读|favorites/.test(text)) return { id: 'favorites', reason: '候选主要来自收藏或稍后读' }
+    if (devRe.test(text)) return { id: 'opportunity', reason: '命中开发/工具/AI/开源相关关键词' }
+    return { id: 'trend', reason: '混合热榜/动态内容，按话题趋势处理' }
+  }
+
+  function smartBriefPromptFor(route, items) {
+    const template = BRIEF_TEMPLATES[route.id] || BRIEF_TEMPLATES.trend
+    return [
+      `请生成《${template.title}》。`,
+      '',
+      `模板目标：${template.focus}`,
+      `自动路由原因：${route.reason}`,
+      '',
+      '请输出 Markdown，包含：',
+      '1. 今日/本期结论：3-5 条重点。',
+      '2. 关键信号：按来源列出最有信息量的内容，并解释为什么重要。',
+      '3. 分歧、噪音与风险：不要把所有热点都当成有效信号。',
+      '4. 后续动作：给出可执行的阅读、跟踪、开发或整理任务。',
+      '5. 下次继续关注：列出 3-5 个主题、人物或问题。',
+      '',
+      '约束：只基于候选内容，不编造外部事实；每个判断尽量能追溯到具体候选。',
+      '',
+      markdownForExport({ title: `${template.title}候选包`, items }),
+    ].join('\n')
+  }
+
+  function latestSmartBrief() {
+    return readSmartBriefs()[0] || null
+  }
+
   function numericLikes(value) {
     const text = String(value || '').replace(/,/g, '')
     const n = Number(text)
@@ -671,6 +746,130 @@
     body.textContent = payload.content || ''
     output.appendChild(body)
     $('status').textContent = '机会报告已生成'
+  }
+
+  async function runDshSmartBrief(items, selectedTemplate, output) {
+    const route = routeSmartBrief(items, selectedTemplate)
+    const template = BRIEF_TEMPLATES[route.id] || BRIEF_TEMPLATES.trend
+    const prompt = smartBriefPromptFor(route, items)
+    output.style.display = ''
+    output.textContent = `正在生成${template.title}…`
+    $('status').textContent = '智能简报生成中…'
+    const startedAt = Date.now()
+    const payload = await postJson('/zhihu-dashboard/api/dsh-analyze', { prompt })
+    if (payload.ok !== true) {
+      const failed = {
+        date: todayKey(),
+        template: route.id,
+        templateTitle: template.title,
+        reason: route.reason,
+        status: 'failed',
+        provider: payload.provider || '',
+        model: payload.model || '',
+        generatedAt: startedAt,
+        candidateCount: items.length,
+        highPriorityCount: items.filter((it) => it.opportunityScore >= 7).length,
+        sourceCounts: sourceCountsForItems(items),
+        content: '',
+        error: payload.error || '未知错误',
+      }
+      writeSmartBrief(failed)
+      output.textContent = `智能简报生成失败：${failed.error}`
+      $('status').textContent = '智能简报生成失败'
+      return failed
+    }
+    const record = {
+      date: todayKey(),
+      template: route.id,
+      templateTitle: template.title,
+      reason: route.reason,
+      status: 'done',
+      provider: payload.provider || '',
+      model: payload.model || '',
+      generatedAt: Date.now(),
+      candidateCount: items.length,
+      highPriorityCount: items.filter((it) => it.opportunityScore >= 7).length,
+      sourceCounts: sourceCountsForItems(items),
+      content: payload.content || '',
+      error: '',
+    }
+    writeSmartBrief(record)
+    output.innerHTML = ''
+    const meta = document.createElement('div')
+    meta.className = 'meta'
+    meta.textContent = `${record.templateTitle} · ${record.candidateCount} 条候选 · ${record.provider}/${record.model}`
+    output.appendChild(meta)
+    const body = document.createElement('div')
+    body.className = 'reader-body'
+    body.textContent = record.content
+    output.appendChild(body)
+    $('status').textContent = '智能简报已生成'
+    return record
+  }
+
+  function renderSmartBriefCard(items) {
+    const route = routeSmartBrief(items, lsGet(LS.smartBriefTemplate, 'auto'))
+    const latest = latestSmartBrief()
+    const card = document.createElement('div')
+    card.className = 'card'
+    const title = document.createElement('div')
+    title.className = 'title'
+    title.textContent = '智能简报'
+    card.appendChild(title)
+    const meta = document.createElement('div')
+    meta.className = 'meta'
+    meta.appendChild(Object.assign(document.createElement('span'), { textContent: `自动模板：${(BRIEF_TEMPLATES[route.id] || BRIEF_TEMPLATES.trend).title}` }))
+    meta.appendChild(Object.assign(document.createElement('span'), { textContent: route.reason }))
+    meta.appendChild(Object.assign(document.createElement('span'), { textContent: `候选 ${items.length}` }))
+    meta.appendChild(Object.assign(document.createElement('span'), { textContent: `高优先级 ${items.filter((it) => it.opportunityScore >= 7).length}` }))
+    card.appendChild(meta)
+    const controls = document.createElement('div')
+    controls.className = 'filter-actions'
+    const select = document.createElement('select')
+    select.style.cssText = 'min-width:180px;padding:5px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px'
+    select.appendChild(Object.assign(document.createElement('option'), { value: 'auto', textContent: '自动匹配模板' }))
+    Object.entries(BRIEF_TEMPLATES).forEach(([id, tpl]) => select.appendChild(Object.assign(document.createElement('option'), { value: id, textContent: tpl.title })))
+    select.value = lsGet(LS.smartBriefTemplate, 'auto')
+    select.addEventListener('change', () => { lsSet(LS.smartBriefTemplate, select.value); renderOpportunities() })
+    controls.appendChild(select)
+    const generateBtn = document.createElement('button')
+    generateBtn.className = 'ghost'
+    generateBtn.textContent = latest?.date === todayKey() && latest.status === 'done' ? '重新生成今日简报' : '生成今日智能简报'
+    generateBtn.disabled = items.length === 0
+    controls.appendChild(generateBtn)
+    const copyBtn = document.createElement('button')
+    copyBtn.className = 'ghost'
+    copyBtn.textContent = '复制简报'
+    copyBtn.disabled = !latest?.content
+    copyBtn.addEventListener('click', () => copyText(latest.content, latest.templateTitle || '智能简报'))
+    controls.appendChild(copyBtn)
+    card.appendChild(controls)
+    const output = document.createElement('div')
+    output.className = 'card'
+    output.style.display = latest?.content ? '' : 'none'
+    if (latest?.content) {
+      const latestMeta = document.createElement('div')
+      latestMeta.className = 'meta'
+      latestMeta.textContent = `${latest.templateTitle} · ${new Date(latest.generatedAt).toLocaleString('zh-CN', { hour12: false })} · ${latest.candidateCount} 条候选`
+      output.appendChild(latestMeta)
+      const body = document.createElement('div')
+      body.className = 'reader-body'
+      body.textContent = latest.content
+      output.appendChild(body)
+    } else if (latest?.status === 'failed') {
+      output.style.display = ''
+      output.textContent = `最近生成失败：${latest.error || '未知错误'}`
+    }
+    generateBtn.addEventListener('click', () => runDshSmartBrief(items, select.value, output))
+    card.appendChild(output)
+    const history = readSmartBriefs().slice(0, 7)
+    if (history.length) {
+      const hist = document.createElement('div')
+      hist.className = 'hint'
+      hist.textContent = `最近简报：${history.map((it) => `${it.date} ${it.templateTitle}${it.status === 'failed' ? '失败' : ''}`).join(' · ')}`
+      card.appendChild(hist)
+    }
+    return card
   }
 
   function renderOpportunities() {
@@ -789,6 +988,7 @@
     output.style.display = 'none'
     analyzeBtn.addEventListener('click', () => { output.style.display = ''; runDshOpportunityAnalysis(items, output) })
     box.appendChild(intro)
+    box.appendChild(renderSmartBriefCard(allItems))
     box.appendChild(output)
     if (items.length === 0) {
       box.appendChild(Object.assign(document.createElement('div'), { className: 'empty', textContent: allItems.length === 0 ? '暂无机会候选。先刷新热榜/关注动态、添加追踪项，或读取浏览器会话。' : '当前筛选下没有候选。切回“全部”或读取更多数据源。' }))
