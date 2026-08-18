@@ -208,10 +208,13 @@
         <div class="settings-subtitle">知乎扫码登录（推荐）</div>
         <div class="settings-callout">扫码登录会作为只读登录态使用：不保存账号密码，Cookie 不进入模型、导出或日志。浏览器 Cookie/profile 读取已从用户入口移除，避免加密 Cookie 导致失败。</div>
         <div class="filter-actions" style="margin-top:8px">
-          <button class="ghost" disabled title="下一版接入扫码登录状态机">生成二维码（下一版）</button>
-          <button class="ghost" disabled title="下一版支持清除扫码会话">清除只读会话</button>
+          <button class="ghost" id="settings-qr-start">生成二维码</button>
+          <button class="ghost" id="settings-qr-refresh">刷新状态</button>
+          <button class="ghost" id="settings-qr-load">读取会话线索</button>
+          <button class="ghost" id="settings-qr-logout">清除只读会话</button>
         </div>
-        <div class="hint">当前可继续使用 Access Secret 和本地缓存；扫码登录接入后将优先供智能简报和关注内容读取使用。</div>
+        <div id="settings-qr-status" class="hint">正在读取只读登录态状态…</div>
+        <div id="settings-qr-box" class="settings-callout" style="display:none;text-align:center"></div>
         <div class="settings-subtitle">列表与刷新</div>
         <div class="row">
           <div>
@@ -362,6 +365,7 @@
   let isBackgroundRefresh = false
   let exportState = { title: '知乎面板', items: [] }
   let opportunityFilter = 'all'
+  let qrLoginTimer = null
 
   function lsGet(key, fallback) {
     try { const v = localStorage.getItem(key); return v === null ? fallback : v } catch { return fallback }
@@ -506,6 +510,70 @@
     writeBrowserSessionItems((payload.items || []).map((it) => Object.assign({ source: '知乎会话' }, it)))
     statusEl.textContent = `已读取 ${payload.items?.length || 0} 条知乎会话线索`
     if (rerender) renderOpportunities()
+  }
+
+  async function loadSavedSessionItems(statusEl, rerender = true) {
+    statusEl.textContent = '读取知乎只读会话线索…'
+    const payload = await postJson('/zhihu-dashboard/api/session-items', { limit: 30 })
+    if (payload.ok !== true) {
+      statusEl.textContent = payload.error || '读取失败'
+      return
+    }
+    writeBrowserSessionItems((payload.items || []).map((it) => Object.assign({ source: '知乎会话' }, it)))
+    statusEl.textContent = `已读取 ${payload.items?.length || 0} 条知乎会话线索`
+    if (rerender) renderOpportunities()
+  }
+
+  function stopQrLoginPolling() {
+    if (qrLoginTimer) clearInterval(qrLoginTimer)
+    qrLoginTimer = null
+  }
+
+  function renderQrLoginStatus(payload) {
+    const status = $('settings-qr-status')
+    const box = $('settings-qr-box')
+    if (!payload || payload.ok !== true) {
+      status.textContent = payload?.error || '扫码登录状态不可用'
+      return
+    }
+    if (payload.hasSession !== undefined) {
+      status.textContent = payload.hasSession
+        ? `已保存知乎只读会话 · ${payload.hasAuthCookie ? '包含登录凭证' : '凭证可能不完整'} · ${payload.savedAt ? new Date(payload.savedAt).toLocaleString('zh-CN', { hour12: false }) : ''}`
+        : '尚未登录知乎只读会话。'
+      return
+    }
+    status.textContent = payload.message || payload.status
+    if (payload.qrSvgDataUrl || payload.qrText) {
+      box.style.display = ''
+      box.innerHTML = payload.qrSvgDataUrl
+        ? `<img alt="知乎扫码登录二维码" src="${payload.qrSvgDataUrl}" style="width:220px;height:220px;background:white;padding:10px;border-radius:12px"><div class="hint">请使用知乎 App 扫码确认登录</div>`
+        : `<div class="hint" style="word-break:break-all">二维码文本：${escapeHtml(payload.qrText)}</div>`
+    }
+    if (payload.status === 'succeeded') {
+      stopQrLoginPolling()
+      loadSavedSessionItems(status, false)
+    }
+    if (payload.status === 'expired' || payload.status === 'failed') stopQrLoginPolling()
+  }
+
+  async function refreshQrSessionStatus() {
+    const payload = await fetchJson('/zhihu-dashboard/api/session-status?verify=1', '')
+    renderQrLoginStatus(payload)
+  }
+
+  async function startQrLogin() {
+    stopQrLoginPolling()
+    $('settings-qr-status').textContent = '正在生成二维码…'
+    $('settings-qr-box').style.display = 'none'
+    $('settings-qr-box').innerHTML = ''
+    const payload = await postJson('/zhihu-dashboard/api/qr-login/start', {})
+    renderQrLoginStatus(payload)
+    if (payload.ok === true && payload.id && payload.status !== 'failed') {
+      qrLoginTimer = setInterval(async () => {
+        const next = await fetchJson(`/zhihu-dashboard/api/qr-login/status?id=${encodeURIComponent(payload.id)}`, '')
+        renderQrLoginStatus(next)
+      }, 1200)
+    }
   }
 
   function analysisPromptFor(title, items) {
@@ -1284,7 +1352,7 @@
   async function fetchJson(url, secret) {
     const headers = {}
     if (secret) headers['x-zhihu-secret'] = secret
-    const isGet = !/auth\?verify|analyze|question-title/.test(url)
+    const isGet = !/auth\?verify|analyze|question-title|qr-login|session-status/.test(url)
     if (isGet) {
       const cached = cacheGet(url)
       if (cached !== null) {
@@ -2787,6 +2855,7 @@
     $('blockAuthors').value = cfg.blockAuthors.join('\n')
     $('blockRegex').value = cfg.blockRegex.join('\n')
     renderFilterHistory()
+    refreshQrSessionStatus().catch(() => { $('settings-qr-status').textContent = '无法读取只读登录态状态' })
     switchSettingsTab('sources')
     $('settings').classList.add('open')
   }
@@ -2827,8 +2896,24 @@
   $('copy-md').disabled = true
   $('copy-csv').disabled = true
   $('open-settings').addEventListener('click', openSettings)
-  $('close-settings').addEventListener('click', () => $('settings').classList.remove('open'))
+  $('close-settings').addEventListener('click', () => { stopQrLoginPolling(); $('settings').classList.remove('open') })
   $('save-settings').addEventListener('click', saveSettings)
+  $('settings-qr-start').addEventListener('click', startQrLogin)
+  $('settings-qr-refresh').addEventListener('click', () => refreshQrSessionStatus().catch(() => { $('settings-qr-status').textContent = '无法读取只读登录态状态' }))
+  $('settings-qr-load').addEventListener('click', () => loadSavedSessionItems($('settings-qr-status'), false))
+  $('settings-qr-logout').addEventListener('click', async () => {
+    stopQrLoginPolling()
+    const payload = await postJson('/zhihu-dashboard/api/qr-login/logout', {})
+    if (payload.ok === true) {
+      lsSet(LS.browserSessionItems, '[]')
+      lsSet(LS.browserSessionAt, '0')
+      $('settings-qr-box').style.display = 'none'
+      $('settings-qr-box').innerHTML = ''
+      $('settings-qr-status').textContent = '已清除知乎只读会话。'
+    } else {
+      $('settings-qr-status').textContent = payload.error || '清除失败'
+    }
+  })
   $('verify-secret').addEventListener('click', async () => {
     const value = $('secret').value.trim()
     const result = $('verify-result')
@@ -2844,7 +2929,7 @@
       result.textContent = (payload && payload.error) ? String(payload.error) : '验证失败 —— 请检查 Secret'
     }
   })
-  $('settings').addEventListener('click', (e) => { if (e.target === $('settings')) $('settings').classList.remove('open') })
+  $('settings').addEventListener('click', (e) => { if (e.target === $('settings')) { stopQrLoginPolling(); $('settings').classList.remove('open') } })
 
   /** 有未读新内容时：跳到帖子追踪页；新增卡片已在追踪项下方直接展示。 */
   function jumpToUnread() {
