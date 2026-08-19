@@ -542,7 +542,11 @@
         : '尚未登录知乎只读会话。'
       return
     }
-    status.textContent = payload.message || payload.status
+    const debug = payload.debug || {}
+    const diagnostic = Object.keys(debug).length
+      ? ` · scan=${debug.scanStatus ?? '-'} · login=${debug.loginStatus || '-'} · success=${debug.hasSuccessFlag ? 'Y' : 'N'} · user=${debug.hasUserId ? 'Y' : 'N'} · z_c0=${debug.hasAuthCookie ? 'Y' : 'N'}`
+      : ''
+    status.textContent = `${payload.message || payload.status}${diagnostic}`
     if (payload.qrSvgDataUrl || payload.qrText) {
       box.style.display = ''
       box.innerHTML = payload.qrSvgDataUrl
