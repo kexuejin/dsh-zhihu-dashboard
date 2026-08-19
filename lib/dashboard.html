@@ -539,7 +539,7 @@
     if (payload.hasSession !== undefined) {
       status.textContent = payload.hasSession
         ? `已保存知乎只读会话 · ${payload.hasAuthCookie ? '包含登录凭证' : '凭证可能不完整'} · ${payload.savedAt ? new Date(payload.savedAt).toLocaleString('zh-CN', { hour12: false }) : ''}`
-        : '尚未登录知乎只读会话。'
+        : '尚未保存知乎只读会话；如刚完成官方验证，请重新生成二维码并重新扫码。'
       return
     }
     const debug = payload.debug || {}
@@ -547,13 +547,13 @@
       ? ` · scan=${debug.scanStatus ?? '-'} · login=${debug.loginStatus || '-'} · success=${debug.hasSuccessFlag ? 'Y' : 'N'} · user=${debug.hasUserId ? 'Y' : 'N'} · z_c0=${debug.hasAuthCookie ? 'Y' : 'N'}`
       : ''
     status.textContent = `${payload.message || payload.status}${diagnostic}`
-    if (payload.riskUrl || payload.status === 'risk_control') {
+    if (payload.status === 'risk_control') {
       stopQrLoginPolling()
       box.style.display = ''
       const riskUrl = payload.riskUrl || 'https://www.zhihu.com/account/risk_control/'
       box.innerHTML = `
         <div style="font-weight:700;margin-bottom:8px">需要完成知乎网络环境验证</div>
-        <div class="hint" style="margin-bottom:10px">知乎要求先完成官方验证；验证完成后请回到这里重新生成二维码。</div>
+        <div class="hint" style="margin-bottom:10px">知乎要求先完成官方验证；验证完成后请回到这里重新生成二维码并重新扫码。刷新状态只检查已保存会话，不会复用旧二维码完成登录。</div>
         <div class="filter-actions" style="justify-content:center">
           <a class="ghost" href="${escapeHtml(riskUrl)}" target="_blank" rel="noreferrer" style="text-decoration:none">打开知乎验证页面</a>
           <button class="ghost" id="settings-qr-restart">验证完成后重新生成二维码</button>
@@ -564,9 +564,13 @@
     }
     if (payload.qrSvgDataUrl || payload.qrText) {
       box.style.display = ''
-      box.innerHTML = payload.qrSvgDataUrl
+      const qrHtml = payload.qrSvgDataUrl
         ? `<img alt="知乎扫码登录二维码" src="${payload.qrSvgDataUrl}" style="width:220px;height:220px;background:white;padding:10px;border-radius:12px"><div class="hint">请使用知乎 App 扫码确认登录</div>`
         : `<div class="hint" style="word-break:break-all">二维码文本：${escapeHtml(payload.qrText)}</div>`
+      const riskHint = payload.riskUrl
+        ? `<div class="hint" style="margin-top:10px;color:var(--warn)">知乎提示可能需要网络环境验证；二维码仍可先扫码。若手机端要求验证，请先 <a href="${escapeHtml(payload.riskUrl)}" target="_blank" rel="noreferrer">打开知乎验证页面</a>，验证完成后点“生成二维码”重新扫码。</div>`
+        : ''
+      box.innerHTML = qrHtml + riskHint
     }
     if (payload.status === 'succeeded') {
       stopQrLoginPolling()
