@@ -211,6 +211,7 @@
           <button class="ghost" id="settings-qr-start">生成二维码</button>
           <button class="ghost" id="settings-qr-refresh">刷新状态</button>
           <button class="ghost" id="settings-qr-load">读取会话线索</button>
+          <button class="ghost" id="settings-qr-debug">复制诊断日志</button>
           <button class="ghost" id="settings-qr-logout">清除只读会话</button>
         </div>
         <div id="settings-qr-status" class="hint">正在读取只读登录态状态…</div>
@@ -581,6 +582,15 @@
       loadSavedSessionItems(status, false)
     }
     if (payload.status === 'expired' || payload.status === 'failed' || payload.status === 'risk_control') stopQrLoginPolling()
+  }
+
+  async function copyQrDebugLog() {
+    const payload = await fetchJson('/zhihu-dashboard/api/qr-login/debug-log', '')
+    if (payload.ok !== true) {
+      $('settings-qr-status').textContent = payload.error || '读取诊断日志失败'
+      return
+    }
+    await copyText(JSON.stringify(payload.events || [], null, 2), '扫码诊断日志')
   }
 
   async function resumeQrLogin(id) {
@@ -2940,6 +2950,7 @@
   $('settings-qr-start').addEventListener('click', startQrLogin)
   $('settings-qr-refresh').addEventListener('click', () => refreshQrSessionStatus().catch(() => { $('settings-qr-status').textContent = '无法读取只读登录态状态' }))
   $('settings-qr-load').addEventListener('click', () => loadSavedSessionItems($('settings-qr-status'), false))
+  $('settings-qr-debug').addEventListener('click', () => copyQrDebugLog().catch((error) => { $('settings-qr-status').textContent = `诊断日志复制失败：${error.message || error}` }))
   $('settings-qr-logout').addEventListener('click', async () => {
     stopQrLoginPolling()
     const payload = await postJson('/zhihu-dashboard/api/qr-login/logout', {})
