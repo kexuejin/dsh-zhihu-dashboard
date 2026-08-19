@@ -547,6 +547,21 @@
       ? ` · scan=${debug.scanStatus ?? '-'} · login=${debug.loginStatus || '-'} · success=${debug.hasSuccessFlag ? 'Y' : 'N'} · user=${debug.hasUserId ? 'Y' : 'N'} · z_c0=${debug.hasAuthCookie ? 'Y' : 'N'}`
       : ''
     status.textContent = `${payload.message || payload.status}${diagnostic}`
+    if (payload.riskUrl || payload.status === 'risk_control') {
+      stopQrLoginPolling()
+      box.style.display = ''
+      const riskUrl = payload.riskUrl || 'https://www.zhihu.com/account/risk_control/'
+      box.innerHTML = `
+        <div style="font-weight:700;margin-bottom:8px">需要完成知乎网络环境验证</div>
+        <div class="hint" style="margin-bottom:10px">知乎要求先完成官方验证；验证完成后请回到这里重新生成二维码。</div>
+        <div class="filter-actions" style="justify-content:center">
+          <a class="ghost" href="${escapeHtml(riskUrl)}" target="_blank" rel="noreferrer" style="text-decoration:none">打开知乎验证页面</a>
+          <button class="ghost" id="settings-qr-restart">验证完成后重新生成二维码</button>
+        </div>`
+      const restart = $('settings-qr-restart')
+      if (restart) restart.addEventListener('click', startQrLogin)
+      return
+    }
     if (payload.qrSvgDataUrl || payload.qrText) {
       box.style.display = ''
       box.innerHTML = payload.qrSvgDataUrl
@@ -557,7 +572,7 @@
       stopQrLoginPolling()
       loadSavedSessionItems(status, false)
     }
-    if (payload.status === 'expired' || payload.status === 'failed') stopQrLoginPolling()
+    if (payload.status === 'expired' || payload.status === 'failed' || payload.status === 'risk_control') stopQrLoginPolling()
   }
 
   async function refreshQrSessionStatus() {
