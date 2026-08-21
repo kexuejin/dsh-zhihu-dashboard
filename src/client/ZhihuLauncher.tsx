@@ -1,9 +1,9 @@
 /**
- * Zhihu dashboard launcher: an official-sidebar foot button
- * (sidebar.footer.action) that opens a right-hand drawer registered as its
+ * Zhihu dashboard launcher: a sidebar primary-action button
+ * (sidebar.primary.action) that opens a right-hand drawer registered as its
  * own shell.overlay entry. The two slots are separate registrations —
  * embedding the overlay inside the button component would render it inside
- * the sidebar footer's DOM (zero-size). A tiny module store coordinates
+ * the sidebar primary area's DOM (zero-size). A tiny module store coordinates
  * open/close between them.
  */
 import { createElement as h, useEffect, useState } from 'react'
@@ -11,10 +11,10 @@ import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the slot registry's Context merge (ctx.slots).
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: pulls the ui-layout SlotMap merges ('sidebar.footer.action',
+// Type-only: pulls the ui-layout SlotMap merges ('sidebar.primary.action',
 // 'shell.overlay') into the program.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-// Type-only: pulls the ui-sidebar SlotMap merge ('sidebar.footer.action').
+// Type-only: pulls the ui-sidebar SlotMap merge ('sidebar.primary.action').
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { NS } from './locales.ts'
 import { startTrackTimer } from './track-checker.ts'
@@ -246,8 +246,8 @@ function ZhihuBriefPill() {
  */
 export function registerZhihuLauncher(ctx: Context): void {
   ctx.locale.bind(NS) // keep the namespace referenced for future copy
-  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-    name: 'sidebar.footer.action',
+  ctx.slots.inject('sidebar.primary.action', () => ctx.slots.register({
+    name: 'sidebar.primary.action',
     id: 'zhihu-dashboard',
     order: 10,
   }, ZhihuFootButton))

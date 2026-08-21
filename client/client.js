@@ -294,11 +294,11 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region src/client/ZhihuLauncher.tsx
 		/**
-		* Zhihu dashboard launcher: an official-sidebar foot button
-		* (sidebar.footer.action) that opens a right-hand drawer registered as its
+		* Zhihu dashboard launcher: a sidebar primary-action button
+		* (sidebar.primary.action) that opens a right-hand drawer registered as its
 		* own shell.overlay entry. The two slots are separate registrations —
 		* embedding the overlay inside the button component would render it inside
-		* the sidebar footer's DOM (zero-size). A tiny module store coordinates
+		* the sidebar primary area's DOM (zero-size). A tiny module store coordinates
 		* open/close between them.
 		*/
 		const PANEL_PATH = "/zhihu-dashboard";
@@ -525,8 +525,8 @@ window.__ModuleLoader__.load({
 		*/
 		function registerZhihuLauncher(ctx) {
 			ctx.locale.bind(NS);
-			ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({
-				name: "sidebar.footer.action",
+			ctx.slots.inject("sidebar.primary.action", () => ctx.slots.register({
+				name: "sidebar.primary.action",
 				id: "zhihu-dashboard",
 				order: 10
 			}, ZhihuFootButton));
